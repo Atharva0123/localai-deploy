@@ -2,28 +2,154 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LocalAI Deploy — GPU & AI Model Explorer</title>
 
-    <!-- ── Security Headers (meta fallback; real headers served by _headers / .htaccess) ── -->
-    <!-- CSP: blocks XSS, restricts external resources to known safe origins -->
+    <!-- ── Primary SEO ──────────────────────────────────────────────────────── -->
+    <title>LocalAIDeploy — GPU &amp; AI Model Explorer for Local Deployment</title>
+    <meta name="title"       content="LocalAIDeploy — GPU &amp; AI Model Explorer for Local Deployment" />
+    <meta name="description" content="Compare 130+ GPUs and 40+ AI models for running LLMs locally. VRAM calculator, quantization guide, build planner, stress-test tools, and live HuggingFace stats. NVIDIA, AMD, Intel, Apple Silicon." />
+    <meta name="keywords"    content="local AI, GPU comparison, LLM hardware, VRAM calculator, llama.cpp, local LLM, AI deployment, NVIDIA RTX, AMD Radeon, RTX 4090, RTX 5090, AI model comparison, GGUF quantization, deepseek local, mistral local, llama 3 local, run AI locally, GPU benchmark AI, AI build planner" />
+    <meta name="author"      content="LocalAIDeploy" />
+    <meta name="robots"      content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <link rel="canonical"    href="https://localai-deploy.vercel.app/" />
+
+    <!-- ── Open Graph / Facebook ────────────────────────────────────────────── -->
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content="https://localai-deploy.vercel.app/" />
+    <meta property="og:site_name"   content="LocalAIDeploy" />
+    <meta property="og:locale"      content="en_US" />
+    <meta property="og:title"       content="LocalAIDeploy — GPU &amp; AI Model Explorer" />
+    <meta property="og:description" content="130+ GPUs · 40+ AI models · VRAM calculator · Build planner · Quantization guide. Everything you need to run AI locally." />
+    <meta property="og:image"       content="https://localai-deploy.vercel.app/og-image.png" />
+    <meta property="og:image:alt"   content="LocalAIDeploy — GPU and AI Model comparison dashboard" />
+    <meta property="og:image:width"  content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- ── Twitter / X Card ────────────────────────────────────────────────── -->
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:url"         content="https://localai-deploy.vercel.app/" />
+    <meta name="twitter:title"       content="LocalAIDeploy — GPU &amp; AI Model Explorer" />
+    <meta name="twitter:description" content="130+ GPUs · 40+ AI models. Compare hardware for running LLMs locally. VRAM calc, build planner, stress-test tools." />
+    <meta name="twitter:image"       content="https://localai-deploy.vercel.app/og-image.png" />
+    <meta name="twitter:image:alt"   content="LocalAIDeploy GPU and AI model comparison tool" />
+
+    <!-- ── PWA / Theme ──────────────────────────────────────────────────────── -->
+    <meta name="theme-color"         content="#6e50ff" />
+    <meta name="color-scheme"        content="dark light" />
+    <meta name="application-name"    content="LocalAIDeploy" />
+    <meta name="apple-mobile-web-app-title"   content="LocalAIDeploy" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest"             href="/site.webmanifest" />
+    <link rel="icon"                 type="image/svg+xml"   href="/favicon.svg" />
+    <link rel="apple-touch-icon"     href="/apple-touch-icon.png" />
+
+    <!-- ── Preconnect: fonts + APIs ─────────────────────────────────────────── -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://api.frankfurter.dev" />
+    <link rel="dns-prefetch" href="https://huggingface.co" />
+
+    <!-- ── Structured Data: WebApplication ─────────────────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "LocalAIDeploy",
+      "url": "https://localai-deploy.vercel.app",
+      "description": "Compare GPUs and AI models for running LLMs locally. Includes VRAM calculator, build planner, quantization guide, and live HuggingFace model stats.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Any (Web Browser)",
+      "inLanguage": "en",
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "GPU hardware comparison — NVIDIA, AMD, Intel, Apple Silicon",
+        "AI model browser — Llama, DeepSeek, Mistral, Qwen, Gemma, Phi",
+        "VRAM calculator for quantized LLMs",
+        "KV-cache memory estimator",
+        "Build planner with cost and power analysis",
+        "Stress-test scoring guide",
+        "Live HuggingFace download and like counts",
+        "USD to INR live exchange rate"
+      ],
+      "creator": {
+        "@type": "Organization",
+        "name": "LocalAIDeploy",
+        "url": "https://localai-deploy.vercel.app"
+      }
+    }
+    </script>
+
+    <!-- ── Structured Data: FAQPage ─────────────────────────────────────────── -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Which GPU is best for running LLMs locally?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "For consumer GPUs, the NVIDIA RTX 4090 (24 GB) and RTX 5090 (32 GB) are the best options for running large LLMs locally. For budget builds, the RTX 4060 Ti 16 GB or AMD RX 7900 XTX (24 GB) offer good value. For professional workloads, the NVIDIA RTX PRO 6000 Blackwell (96 GB) can run 70B models at full precision."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How much VRAM do I need to run Llama 3 70B?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "At Q4_K_M quantization, Llama 3.3 70B requires approximately 46 GB of VRAM. You need an NVIDIA H100/H200, AMD MI300X, Apple M2/M4 Ultra, or NVIDIA RTX PRO 6000 Blackwell (96 GB) to run it on a single GPU. Two RTX 3090s connected via NVLink (48 GB combined) also work."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I run DeepSeek R1 locally?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "DeepSeek R1 (671B parameters) requires 180–260 GB VRAM at Q4–Q8 quantization. You need multiple data center GPUs (e.g., 8× H100 SXM) or a GB200 superchip. Smaller distilled versions like DeepSeek-R1-Distill-7B run on a single RTX 4090 at Q4_K_M."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What is the best AMD GPU for running AI models?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "The AMD Radeon RX 7900 XTX (24 GB) is the best consumer AMD GPU for local AI, supporting ROCm 5.x and llama.cpp. For workstations, the AMD Radeon PRO W7900 (48 GB ECC) offers a cost-effective alternative to NVIDIA professional cards. For data center use, the AMD Instinct MI300X (192 GB HBM3) rivals the NVIDIA H100."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What does quantization mean for LLMs?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Quantization reduces model precision to save VRAM: Q4_K_M uses ~4.5 bits per weight (about 45% of FP16 size) with minimal quality loss. Q8_0 is near-lossless at 8 bits. IQ2_XXS aggressively compresses to 2.3 bits/weight, enabling very large models on consumer GPUs at some quality cost. LocalAIDeploy shows exact VRAM requirements and quality scores for every quantization format."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- ── Security Headers (meta fallback) ─────────────────────────────────── -->
+    <!-- Real headers are served by vercel.json — these are a fallback -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'self';
                script-src 'self' 'unsafe-inline';
                style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
                font-src 'self' https://fonts.gstatic.com data:;
-               connect-src 'self' https://api.frankfurter.dev;
+               connect-src 'self' https://api.frankfurter.dev https://huggingface.co;
                img-src 'self' data: blob:;
                frame-src 'none';
                object-src 'none';
                base-uri 'self';
                form-action 'self';" />
-    <!-- Clickjacking prevention -->
-    <meta http-equiv="X-Frame-Options" content="DENY" />
-    <!-- Controls referrer information sent when navigating away -->
-    <meta name="referrer" content="no-referrer-when-downgrade" />
-    <!-- Opt out of FLoC / interest cohort tracking -->
+    <meta http-equiv="X-Frame-Options"   content="DENY" />
+    <meta name="referrer"                content="no-referrer-when-downgrade" />
     <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()" />
   </head>
   <body>

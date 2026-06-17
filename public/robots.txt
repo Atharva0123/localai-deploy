@@ -1,0 +1,29 @@
+# LocalAIDeploy — robots.txt
+# https://localai-deploy.vercel.app
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /_vercel/
+
+# Sitemap
+Sitemap: https://localai-deploy.vercel.app/sitemap.xml
+
+# Crawl-delay (optional — reduce load on Vercel edge)
+Crawl-delay: 5
+
+# Allow major AI training crawlers (opt-in for discoverability)
+User-agent: GPTBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Googlebot
+Crawl-delay: 2
+
+User-agent: Bingbot
+Crawl-delay: 3

@@ -632,10 +632,15 @@ function HwCard({hw,qty,selected,comparing,onSelect,onQty,onCompare}){
       <div style={{fontSize:10,color:"var(--text3)",marginBottom:10}}>{hw.vramType} · {hw.pcie}</div>
 
       {/* Specs grid */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 10px",marginBottom:10}}>
-        {[["VRAM",fmtVram(hw.vram)],["BW",fmtBW(hw.bandwidth)],["TDP",fmtW(hw.tdp)],["FP16",fmtTF(hw.fp16)]].map(([k,v])=>(
-          <div key={k} style={{display:"flex",gap:4,alignItems:"baseline"}}>
-            <span style={{fontSize:9,color:"var(--text3)",fontWeight:600,minWidth:30}}>{k}</span>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 10px",marginBottom:10}}>
+        {[
+          ["VRAM","Video RAM",fmtVram(hw.vram)],
+          ["BW","Mem. Bandwidth",fmtBW(hw.bandwidth)],
+          ["TDP","Thermal Power",fmtW(hw.tdp)],
+          ["FP16","Half-Precision",fmtTF(hw.fp16)]
+        ].map(([k,full,v])=>(
+          <div key={k} style={{display:"flex",flexDirection:"column",gap:1}}>
+            <span style={{fontSize:8,color:"var(--text3)",fontWeight:600,textTransform:"uppercase",letterSpacing:.4,lineHeight:1}}>{full}</span>
             <span style={{fontSize:12,fontWeight:700,color:"var(--text)",fontFamily:"'JetBrains Mono', monospace"}}>{v}</span>
           </div>
         ))}
@@ -2674,6 +2679,85 @@ export default function App(){
                 <FAQItem key={i} q={q} a={a}/>
               ))}
             </div>
+
+            {/* ── Glossary of Terms ── */}
+            <div style={{fontWeight:700,fontSize:18,color:"var(--text)",marginBottom:4,marginTop:36}}>📝 Glossary of Terms</div>
+            <div style={{fontSize:12,color:"var(--text2)",marginBottom:20}}>Every technical abbreviation and term used on this site — explained in plain English.</div>
+            {[
+              {cat:"Hardware / GPU",color:"var(--accent2)",terms:[
+                {t:"VRAM",f:"Video RAM",d:"The dedicated memory on your GPU. AI models must fit entirely in VRAM to run at full speed — if they spill to system RAM, generation slows 10–50×. Measured in GB."},
+                {t:"TDP",f:"Thermal Design Power",d:"The maximum heat output (in Watts) the GPU produces under full load. Determines your cooling and PSU requirements. Higher TDP = more power draw."},
+                {t:"BW",f:"Memory Bandwidth",d:"How fast data moves between the GPU processor and VRAM — measured in GB/s or TB/s. The single most important spec for LLM token-generation speed."},
+                {t:"FP16",f:"Half-Precision Float (16-bit)",d:"The standard floating-point format for AI inference. All modern GPUs support it. Shown in TFLOPS — higher is faster."},
+                {t:"FP8",f:"8-bit Float",d:"Half the bit-width of FP16 → 2× the compute throughput. Requires Hopper (H100) or newer Blackwell architecture."},
+                {t:"INT8",f:"8-bit Integer",d:"Integer arithmetic at 2× FP16 speed. Supported on Ampere (A100) and newer. Used for quantized model inference."},
+                {t:"FP4",f:"4-bit Float",d:"4× the throughput of FP16. Exclusive to Blackwell GPUs (B200, RTX 5090, RTX PRO 6000 BW). Enables very large models at high speed."},
+                {t:"TFLOPS",f:"Tera Floating-Point Ops/sec",d:"One trillion floating-point operations per second. Measures raw GPU compute capacity for AI training and inference."},
+                {t:"TOPS",f:"Tera Operations Per Second",d:"Same as TFLOPS but for integer operations (INT8, INT4). Used to express throughput for quantized inference."},
+                {t:"HBM",f:"High Bandwidth Memory",d:"Stacked memory used in data center GPUs (H100, MI300X). Far faster than GDDR — H200 reaches 4.8 TB/s vs ~1 TB/s for GDDR7."},
+                {t:"GDDR6/7",f:"Graphics Double Data Rate",d:"Standard GPU memory for consumer and workstation cards. GDDR7 is ~50% faster than GDDR6. RTX 5090 uses GDDR7 at 1.79 TB/s."},
+                {t:"ECC",f:"Error Correcting Code Memory",d:"Memory that detects and corrects bit-flip errors. Standard on workstation and data center GPUs. Critical for 24/7 inference servers."},
+                {t:"NVLink",f:"NVIDIA NVLink",d:"NVIDIA's high-speed GPU-to-GPU interconnect. Two NVLink GPUs pool their VRAM (2× RTX 3090 = 48 GB). Removed from RTX 40/50 series consumer cards."},
+                {t:"PCIe",f:"Peripheral Component Interconnect Express",d:"The slot that connects your GPU to the motherboard. PCIe 5.0 x16 = ~128 GB/s bidirectional. Bottlenecks multi-GPU setups compared to NVLink."},
+                {t:"SXM",f:"Server Module Form Factor",d:"A high-power GPU form factor for server boards (not a PCIe slot). H100 SXM supports 700 W TDP and full NVLink bandwidth."},
+                {t:"CUDA",f:"Compute Unified Device Architecture",d:"NVIDIA's parallel computing platform. Foundation of PyTorch, llama.cpp, vLLM, and virtually all AI frameworks. Not supported on AMD/Intel GPUs."},
+                {t:"ROCm",f:"Radeon Open Compute",d:"AMD's GPU compute platform — the AMD equivalent of CUDA. Required for running AI frameworks on Radeon/Instinct GPUs."},
+              ]},
+              {cat:"AI / ML Concepts",color:"var(--green)",terms:[
+                {t:"LLM",f:"Large Language Model",d:"A neural network trained on vast text data to understand and generate human language. Examples: Llama, Gemma, Mistral, DeepSeek, Qwen."},
+                {t:"Inference",f:"AI Inference",d:"Running a trained model to generate outputs (text, images, embeddings). The primary use case for local AI — far lighter than training."},
+                {t:"Training",f:"Model Training / Fine-tuning",d:"Teaching a model on data. Full training requires clusters of H100s; fine-tuning (LoRA/QLoRA) can run on a single consumer GPU."},
+                {t:"Quantization",f:"Weight Quantization",d:"Compressing model weights from FP16 to lower precision (Q4, Q8) to reduce VRAM. A Q4_K_M 7B model needs 5.5 GB vs 14 GB for FP16 — ~93% quality retained."},
+                {t:"KV Cache",f:"Key-Value Attention Cache",d:"Cached attention computations that avoid re-processing prior tokens each step. Grows with context length — at 128K context a 70B model needs ~100 GB KV cache alone."},
+                {t:"Context Length",f:"Context Window / Token Limit",d:"The maximum tokens the model processes at once. Longer context = more KV cache VRAM. Llama 3.1 supports 128K tokens; older models cap at 4K."},
+                {t:"Tokens",f:"Tokenized Text Units",d:"The chunks text is split into before entering the model. One token ≈ 0.75 English words. A 4K context window ≈ 3,000 words."},
+                {t:"t/s",f:"Tokens per Second",d:"Model generation speed. 10–20 t/s = fast human typing; 30–60 t/s = comfortable chat; 100+ t/s = useful for batch/API workloads."},
+                {t:"Perplexity",f:"Perplexity (PPL)",d:"A quality metric — lower is better. A Q4_K_M model has slightly higher perplexity (lower quality) than the original FP16. Shown in quantization tables."},
+                {t:"RAG",f:"Retrieval-Augmented Generation",d:"Architecture where the model queries a vector database for relevant documents before responding. Reduces hallucinations and keeps knowledge current."},
+                {t:"MMLU",f:"Massive Multitask Language Understanding",d:"Benchmark testing knowledge across 57 subjects (math, history, law, medicine…). Higher % = more knowledgeable model."},
+                {t:"GSM8K",f:"Grade School Math 8K",d:"8,500 math word problems that test multi-step reasoning. 90%+ score indicates strong mathematical ability."},
+                {t:"HumanEval",f:"HumanEval Code Benchmark",d:"164 programming problems measuring code-generation ability. Higher % = better at writing correct, runnable code."},
+                {t:"Attention",f:"Attention Mechanism",d:"The core operation in transformer models. Computes relationships between all tokens. O(n²) cost is why longer context increases KV cache exponentially."},
+              ]},
+              {cat:"Software & Runtimes",color:"var(--amber)",terms:[
+                {t:"llama.cpp",f:"llama.cpp (C++ inference engine)",d:"A C++ runtime by Georgi Gerganov. Runs GGUF quantized models on CPU and GPU. The most popular local LLM backend — used by Ollama, LM Studio, and others."},
+                {t:"Ollama",f:"Ollama",d:"A user-friendly wrapper around llama.cpp. Run models with one command: `ollama run llama3`. Best for beginners — handles model download and serving."},
+                {t:"vLLM",f:"vLLM",d:"A high-throughput Python inference server using PagedAttention. Dramatically increases concurrent user capacity. Requires NVIDIA CUDA GPU."},
+                {t:"GGUF",f:"GPT-Generated Unified Format",d:"The file format for llama.cpp quantized models (replaced GGML). Filename encodes quantization: `Meta-Llama-3-70B.Q4_K_M.gguf`."},
+                {t:"HuggingFace",f:"Hugging Face Hub",d:"The main repository for open-source AI models — the 'GitHub of AI.' This site fetches live model stats (downloads, likes) from the HuggingFace API."},
+                {t:"PyTorch",f:"PyTorch",d:"The dominant Python framework for AI training and inference. Most models are released as PyTorch checkpoints before being converted to GGUF."},
+                {t:"lm-eval",f:"lm-evaluation-harness",d:"EleutherAI's standard evaluation framework. Used to produce MMLU, GSM8K, and HumanEval scores shown on model cards."},
+              ]},
+              {cat:"Quantization Formats",color:"#5599ff",terms:[
+                {t:"FP16",f:"16-bit Float — Full Precision",d:"No quality loss, largest VRAM footprint. Use only if you have ample VRAM or are fine-tuning."},
+                {t:"Q8_0",f:"8-bit Quantization",d:"~99% quality vs FP16. ~2× smaller. Best quality/size ratio — use if VRAM allows."},
+                {t:"Q6_K",f:"6-bit K-Quant",d:"~97% quality. Slightly smaller than Q8 with barely noticeable quality drop."},
+                {t:"Q5_K_M",f:"5-bit K-Quant Medium",d:"~96% quality. Good choice when Q8 barely doesn't fit."},
+                {t:"Q4_K_M",f:"4.5-bit K-Quant Medium",d:"~93% quality. The most popular format — excellent quality/VRAM balance. Recommended default."},
+                {t:"Q3_K_M",f:"3.35-bit K-Quant Medium",d:"~82% quality. Noticeable degradation. Useful for fitting larger models on limited VRAM."},
+                {t:"Q2_K",f:"2.6-bit K-Quant",d:"~76% quality. Significant degradation. Last resort when nothing else fits."},
+                {t:"IQ2_XXS",f:"2.1-bit iMatrix Extra-Extra-Small",d:"~70% quality. Uses iMatrix importance scoring to preserve critical weights. Extreme compression."},
+                {t:"IQ1_S",f:"1.6-bit iMatrix Small",d:"~65% quality. Most aggressive compression available. Quality is noticeably degraded — only for very constrained VRAM."},
+              ]},
+            ].map(({cat,color,terms})=>(
+              <div key={cat} style={{marginBottom:28}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:color,flexShrink:0}}/>
+                  <span style={{fontWeight:700,fontSize:14,color}}>{cat}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:8}}>
+                  {terms.map(({t,f,d})=>(
+                    <div key={t} style={{background:"var(--surface)",border:"1px solid var(--border)",borderLeft:`3px solid ${color}`,borderRadius:8,padding:"10px 12px"}}>
+                      <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                        <span style={{fontWeight:800,fontSize:13,color:"var(--text)",fontFamily:"'JetBrains Mono',monospace"}}>{t}</span>
+                        <span style={{fontSize:9,color,fontWeight:600,textTransform:"uppercase",letterSpacing:.4}}>{f}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"var(--text2)",lineHeight:1.65}}>{d}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
