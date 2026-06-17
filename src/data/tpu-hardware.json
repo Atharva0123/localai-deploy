@@ -1,0 +1,92 @@
+[
+  {
+    "id": "rtx5090",
+    "search": "GeForce RTX 5090",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:42.041Z"
+  },
+  {
+    "id": "rtx5080",
+    "search": "GeForce RTX 5080",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:44.399Z"
+  },
+  {
+    "id": "rtx5070ti",
+    "search": "GeForce RTX 5070 Ti",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:46.732Z"
+  },
+  {
+    "id": "rtx5070",
+    "search": "GeForce RTX 5070",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:49.047Z"
+  },
+  {
+    "id": "rtx5060ti_16",
+    "search": "GeForce RTX 5060 Ti 16",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:51.375Z"
+  },
+  {
+    "id": "rtx4090",
+    "search": "GeForce RTX 4090",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:53.681Z"
+  },
+  {
+    "id": "rtx4080s",
+    "search": "GeForce RTX 4080 Super",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:55.991Z"
+  },
+  {
+    "id": "rtx4070ti_s",
+    "search": "GeForce RTX 4070 Ti Super",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:23:58.295Z"
+  },
+  {
+    "id": "rtx4060ti_16",
+    "search": "GeForce RTX 4060 Ti 16",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:00.616Z"
+  },
+  {
+    "id": "amd_rx9070xt",
+    "search": "Radeon RX 9070 XT",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:02.947Z"
+  },
+  {
+    "id": "amd_rx9070",
+    "search": "Radeon RX 9070",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:05.285Z"
+  },
+  {
+    "id": "intel_b580",
+    "search": "Arc B580",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:07.611Z"
+  },
+  {
+    "id": "intel_b770",
+    "search": "Arc B770",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:09.907Z"
+  },
+  {
+    "id": "rtxpro6000_bw",
+    "search": "RTX PRO 6000 Blackwell",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:12.203Z"
+  },
+  {
+    "id": "l40s",
+    "search": "NVIDIA L40S",
+    "error": "Search returned no URL (Cloudflare blocked?)",
+    "scrapedAt": "2026-06-16T12:24:14.506Z"
+  }
+]

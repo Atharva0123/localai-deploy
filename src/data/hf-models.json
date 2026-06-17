@@ -1,0 +1,233 @@
+[
+  {
+    "hfId": "meta-llama/Llama-3.3-70B-Instruct",
+    "author": "meta-llama",
+    "gated": "manual",
+    "lastModified": "2024-12-21T18:28:01.000Z",
+    "downloads_30d": 442385,
+    "likes": 2827,
+    "params_b": 70.6,
+    "tags": [
+      "transformers",
+      "text-generation",
+      "pytorch"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct"
+  },
+  {
+    "hfId": "meta-llama/Llama-3.1-405B-Instruct",
+    "author": "meta-llama",
+    "gated": "manual",
+    "lastModified": "2024-09-25T17:02:11.000Z",
+    "downloads_30d": 149644,
+    "likes": 596,
+    "params_b": 405.9,
+    "tags": [
+      "transformers",
+      "text-generation",
+      "pytorch"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/meta-llama/Llama-3.1-405B-Instruct"
+  },
+  {
+    "hfId": "deepseek-ai/DeepSeek-R1",
+    "author": "deepseek-ai",
+    "gated": false,
+    "lastModified": "2025-03-27T04:01:59.000Z",
+    "downloads_30d": 4647879,
+    "likes": 13394,
+    "params_b": 684.5,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/deepseek-ai/DeepSeek-R1"
+  },
+  {
+    "hfId": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    "author": "deepseek-ai",
+    "gated": false,
+    "lastModified": "2025-02-24T03:32:20.000Z",
+    "downloads_30d": 277372,
+    "likes": 844,
+    "params_b": 7.6,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+  },
+  {
+    "hfId": "deepseek-ai/DeepSeek-V3",
+    "author": "deepseek-ai",
+    "gated": false,
+    "lastModified": "2025-03-27T04:01:45.000Z",
+    "downloads_30d": 661676,
+    "likes": 4089,
+    "params_b": 684.5,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/deepseek-ai/DeepSeek-V3"
+  },
+  {
+    "hfId": "google/gemma-2-27b-it",
+    "author": "google",
+    "gated": "manual",
+    "lastModified": "2024-08-27T19:41:54.000Z",
+    "downloads_30d": 120597,
+    "likes": 568,
+    "params_b": 27.2,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/google/gemma-2-27b-it"
+  },
+  {
+    "hfId": "google/gemma-3-12b-it",
+    "author": "google",
+    "gated": "manual",
+    "lastModified": "2025-03-21T20:28:56.000Z",
+    "downloads_30d": 1621360,
+    "likes": 757,
+    "params_b": 12.2,
+    "tags": [
+      "transformers"
+    ],
+    "pipeline": "image-text-to-text",
+    "hfUrl": "https://huggingface.co/google/gemma-3-12b-it"
+  },
+  {
+    "hfId": "google/gemma-3-27b-it",
+    "author": "google",
+    "gated": "manual",
+    "lastModified": "2025-03-21T20:29:02.000Z",
+    "downloads_30d": 960168,
+    "likes": 1980,
+    "params_b": 27.4,
+    "tags": [
+      "transformers"
+    ],
+    "pipeline": "image-text-to-text",
+    "hfUrl": "https://huggingface.co/google/gemma-3-27b-it"
+  },
+  {
+    "hfId": "google/gemma-3-4b-it",
+    "author": "google",
+    "gated": "manual",
+    "lastModified": "2025-03-21T20:20:53.000Z",
+    "downloads_30d": 1156428,
+    "likes": 1369,
+    "params_b": 4.3,
+    "tags": [
+      "transformers"
+    ],
+    "pipeline": "image-text-to-text",
+    "hfUrl": "https://huggingface.co/google/gemma-3-4b-it"
+  },
+  {
+    "hfId": "microsoft/Phi-4",
+    "author": "microsoft",
+    "gated": false,
+    "lastModified": "2025-11-24T16:57:37.000Z",
+    "downloads_30d": 771574,
+    "likes": 2256,
+    "params_b": 14.7,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/microsoft/Phi-4"
+  },
+  {
+    "hfId": "microsoft/phi-4-mini-instruct",
+    "author": "microsoft",
+    "gated": false,
+    "lastModified": "2025-12-10T20:24:40.000Z",
+    "downloads_30d": 864925,
+    "likes": 773,
+    "params_b": 3.8,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/microsoft/phi-4-mini-instruct"
+  },
+  {
+    "hfId": "mistralai/Mistral-7B-Instruct-v0.3",
+    "author": "mistralai",
+    "gated": false,
+    "lastModified": "2025-12-03T12:13:48.000Z",
+    "downloads_30d": 1968814,
+    "likes": 2637,
+    "params_b": 7.2,
+    "tags": [],
+    "hfUrl": "https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3"
+  },
+  {
+    "hfId": "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+    "author": "mistralai",
+    "gated": false,
+    "lastModified": "2025-12-22T10:15:41.000Z",
+    "downloads_30d": 213798,
+    "likes": 1364,
+    "params_b": 24,
+    "tags": [],
+    "hfUrl": "https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503"
+  },
+  {
+    "hfId": "Qwen/Qwen2.5-72B-Instruct",
+    "author": "Qwen",
+    "gated": false,
+    "lastModified": "2025-01-12T02:07:38.000Z",
+    "downloads_30d": 340185,
+    "likes": 952,
+    "params_b": 72.7,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/Qwen/Qwen2.5-72B-Instruct"
+  },
+  {
+    "hfId": "Qwen/Qwen2.5-32B-Instruct",
+    "author": "Qwen",
+    "gated": false,
+    "lastModified": "2024-09-25T12:33:09.000Z",
+    "downloads_30d": 703171,
+    "likes": 352,
+    "params_b": 32.8,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/Qwen/Qwen2.5-32B-Instruct"
+  },
+  {
+    "hfId": "Qwen/Qwen3-30B-A3B",
+    "author": "Qwen",
+    "gated": false,
+    "lastModified": "2025-07-26T03:45:17.000Z",
+    "downloads_30d": 1513346,
+    "likes": 900,
+    "params_b": 30.5,
+    "tags": [
+      "transformers",
+      "text-generation"
+    ],
+    "pipeline": "text-generation",
+    "hfUrl": "https://huggingface.co/Qwen/Qwen3-30B-A3B"
+  }
+]

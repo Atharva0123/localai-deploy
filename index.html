@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LocalAI Deploy — GPU & AI Model Explorer</title>
+
+    <!-- ── Security Headers (meta fallback; real headers served by _headers / .htaccess) ── -->
+    <!-- CSP: blocks XSS, restricts external resources to known safe origins -->
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self' 'unsafe-inline';
+               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+               font-src 'self' https://fonts.gstatic.com data:;
+               connect-src 'self' https://api.frankfurter.dev;
+               img-src 'self' data: blob:;
+               frame-src 'none';
+               object-src 'none';
+               base-uri 'self';
+               form-action 'self';" />
+    <!-- Clickjacking prevention -->
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <!-- Controls referrer information sent when navigating away -->
+    <meta name="referrer" content="no-referrer-when-downgrade" />
+    <!-- Opt out of FLoC / interest cohort tracking -->
+    <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=(), payment=()" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
