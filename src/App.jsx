@@ -1824,191 +1824,276 @@ function BuildPanel({selectedMap,onQty,onClear}){
 // ─── MODEL CARD ───────────────────────────────────────────────────────────────
 function ModelCard({model,totalVram,selectedModel,onSelect,compareA,compareB,onCompareA,onCompareB,onRemove}){
   const [open,setOpen]=useState(false);
-  const bestQ=model.quants.filter(q=>q.vramReq<=totalVram).sort((a,b)=>b.quality-a.quality)[0];
+  const quants=model.quants||[];
+  const bestQ=quants.filter(q=>q.vramReq<=totalVram).sort((a,b)=>b.quality-a.quality)[0];
   const canRun=totalVram>0&&!!bestQ;
   const isA=compareA?.id===model.id,isB=compareB?.id===model.id;
   const catColor={LLM:"var(--accent2)",Reasoning:"var(--amber)",Code:"var(--green)",Vision:"#ff8888"}[model.category]||"var(--text2)";
-  // Live HuggingFace stats (from weekly scrape)
   const hfId=model.hfUrl?.replace("https://huggingface.co/","");
   const live=hfId?HF_LIVE[hfId]:null;
+  const isSelected=selectedModel?.id===model.id;
+
+  const benchmarks=[
+    ["MMLU","Knowledge",model.benchmarks?.mmlu],
+    ["HellaSwag","Reasoning",model.benchmarks?.hellaswag],
+    ["ARC-C","Science",model.benchmarks?.arc],
+    ["GSM8K","Math",model.benchmarks?.gsm8k],
+    ["HumanEval","Code",model.benchmarks?.humaneval],
+  ].filter(([,,v])=>v!=null);
+
   return(
-    <div className="fade-up" style={{background:"var(--surface)",border:`1px solid ${selectedModel?.id===model.id?"var(--accent3)":isA?"rgba(110,80,255,0.5)":isB?"rgba(0,229,160,0.5)":canRun?"rgba(0,229,160,0.2)":"var(--border)"}`,borderRadius:14,overflow:"hidden",transition:"border .2s"}}>
-      <div onClick={()=>setOpen(!open)} style={{padding:"13px 15px",cursor:"pointer"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-          <div>
-            <div style={{fontWeight:700,fontSize:13.5,color:"var(--text)"}}>{model.name}</div>
-            <div style={{fontSize:10,color:"var(--text3)",marginTop:2}}>{model.developer} · {model.license} · {model.released}</div>
+    <div className="fade-up" style={{
+      background:"var(--surface)",
+      border:`2px solid ${isSelected?"var(--accent3)":isA?"rgba(110,80,255,0.5)":isB?"rgba(0,229,160,0.5)":canRun?"rgba(0,229,160,0.18)":"var(--border)"}`,
+      borderRadius:16,overflow:"hidden",transition:"border .2s",
+    }}>
+      {/* ── Card header (always visible) ─────────── */}
+      <div onClick={()=>setOpen(!open)} style={{padding:"16px 18px",cursor:"pointer"}}>
+        {/* Title row */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:800,fontSize:15,color:"var(--text)",lineHeight:1.25,marginBottom:4}}>{model.name}</div>
+            <div style={{fontSize:11.5,color:"var(--text3)",marginTop:0,lineHeight:1.4}}>
+              {model.developer} · <span style={{color:"var(--text2)"}}>{model.license}</span> · {model.released}
+            </div>
           </div>
-          <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end",flexShrink:0}}>
             <Badge color={catColor} bg={catColor+"22"}>{model.category}</Badge>
             {model._custom
               ?<Badge color="var(--amber)" bg="rgba(255,183,77,0.12)">★ Custom</Badge>
-              :<Badge color={canRun?"var(--green)":"var(--red)"} bg={canRun?"rgba(0,229,160,0.1)":"rgba(255,75,110,0.1)"}>{canRun?`✓ ${bestQ.format}`:"Needs VRAM"}</Badge>
+              :<Badge color={canRun?"var(--green)":"var(--red)"} bg={canRun?"rgba(0,229,160,0.1)":"rgba(255,75,110,0.1)"}>
+                {canRun?`✓ ${bestQ.format}`:"Needs VRAM"}
+              </Badge>
             }
             {model.params>0&&<Badge color="var(--accent2)" bg="rgba(110,80,255,0.1)">{model.params}B</Badge>}
-            {onRemove&&<button onClick={e=>{e.stopPropagation();onRemove();}} style={{padding:"2px 8px",borderRadius:5,border:"1px solid var(--red)",background:"rgba(255,75,110,0.1)",color:"var(--red)",fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"inherit",lineHeight:1.5}}>✕ Remove</button>}
+            {onRemove&&<button onClick={e=>{e.stopPropagation();onRemove();}} style={{padding:"3px 9px",borderRadius:6,border:"1px solid var(--red)",background:"rgba(255,75,110,0.1)",color:"var(--red)",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>✕</button>}
           </div>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:8}}>
-          {[
-            ["MMLU","Massive Multitask Language Understanding",model.benchmarks.mmlu],
-            ["HellaSwag","Commonsense NLI Reasoning",model.benchmarks.hellaswag],
-            ["ARC-C","AI2 Reasoning Challenge",model.benchmarks.arc],
-            ["GSM8K","Grade School Math 8K",model.benchmarks.gsm8k],
-            ["HumanEval","Python Code Generation",model.benchmarks.humaneval],
-          ].filter(([,,v])=>v).map(([k,full,v])=>(
-            <div key={k} title={full}>
-              <div style={{fontSize:8,color:"var(--accent2)",textTransform:"uppercase",letterSpacing:.3,marginBottom:1,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{k}</div>
-              <div style={{fontSize:7,color:"var(--text3)",lineHeight:1.2,marginBottom:2,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{full}</div>
-              <div style={{fontSize:13,fontWeight:800,color:"var(--text)",fontFamily:"'JetBrains Mono', monospace"}}>{v}</div>
-              <Bar v={v} color={catColor}/>
-            </div>
-          ))}
-        </div>
-        <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-          <span style={{fontSize:9,color:"var(--text3)"}}>Ctx: <span style={{color:"var(--accent2)",fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>{fmtCtx(model.contextLen)}</span></span>
-          <span style={{fontSize:9,color:"var(--text3)"}}>Family: <span style={{color:"var(--text2)",fontWeight:600}}>{model.family}</span></span>
-          {model.quants.length>0&&(()=>{const maxSpd=model.quants.reduce((x,q)=>Math.max(x,q.speed||0),0);return maxSpd>0?<span style={{fontSize:9,background:"rgba(0,229,160,0.1)",color:"var(--green)",padding:"2px 7px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>⚡ {maxSpd}+ t/s</span>:null;})()}
-          {model.quants.length>0&&(()=>{const arr=model.quants.map(q=>q.vramReq).filter(v=>v>0);if(!arr.length)return null;const minVr=Math.min(...arr);return minVr&&isFinite(minVr)?<span style={{fontSize:9,background:"rgba(110,80,255,0.1)",color:"var(--accent2)",padding:"2px 7px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>min {minVr}GB</span>:null;})()}
-          <a href={safeUrl(model.hfUrl)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:9,color:"var(--accent2)",textDecoration:"none",padding:"2px 7px",borderRadius:4,background:"rgba(110,80,255,0.1)"}}>↗ HuggingFace</a>
-          {live&&fmtDL(live.downloads_30d)&&<span title="Monthly downloads (HuggingFace)" style={{fontSize:9,color:"var(--green)",padding:"2px 7px",borderRadius:4,background:"rgba(0,229,160,0.08)",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>↓ {fmtDL(live.downloads_30d)}/mo</span>}
-          {live?.likes&&<span title="HuggingFace likes" style={{fontSize:9,color:"var(--amber)",padding:"2px 7px",borderRadius:4,background:"rgba(255,183,77,0.1)",fontWeight:700}}>♥ {fmtDL(live.likes)}</span>}
-          {live?.lastModified&&<span title={`Last updated on HuggingFace: ${live.lastModified}`} style={{fontSize:9,color:"var(--text3)",padding:"2px 5px"}}>🔄 {fmtAge(live.lastModified)}</span>}
-          <span style={{marginLeft:"auto",fontSize:10,color:"var(--text3)"}}>{open?"▲ hide":"▼ details"}</span>
+
+        {/* Benchmark scores */}
+        {benchmarks.length>0&&(
+          <div style={{display:"grid",gridTemplateColumns:`repeat(${benchmarks.length},1fr)`,gap:8,marginBottom:12,padding:"10px 12px",background:"rgba(255,255,255,0.025)",borderRadius:10,border:"1px solid var(--border2)"}}>
+            {benchmarks.map(([k,label,v])=>(
+              <div key={k} style={{textAlign:"center"}}>
+                <div style={{fontSize:10,color:"var(--accent2)",fontWeight:800,fontFamily:"'JetBrains Mono',monospace",letterSpacing:.5,marginBottom:1}}>{k}</div>
+                <div style={{fontSize:9,color:"var(--text3)",marginBottom:4,lineHeight:1.2}}>{label}</div>
+                <div style={{fontSize:16,fontWeight:800,color:"var(--text)",fontFamily:"'JetBrains Mono',monospace",lineHeight:1}}>{v}</div>
+                <div style={{marginTop:4,height:3,background:"var(--surface3)",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{width:`${v}%`,height:"100%",background:catColor,borderRadius:2}}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Quick stats row */}
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontSize:11,color:"var(--text3)"}}>Ctx: <strong style={{color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace"}}>{fmtCtx(model.contextLen)}</strong></span>
+          <span style={{color:"var(--border2)"}}>·</span>
+          <span style={{fontSize:11,color:"var(--text3)"}}>Family: <strong style={{color:"var(--text2)"}}>{model.family}</strong></span>
+          {quants.length>0&&(()=>{
+            const maxSpd=quants.reduce((x,q)=>Math.max(x,q.speed||0),0);
+            return maxSpd>0?<span style={{fontSize:10,background:"rgba(0,229,160,0.1)",color:"var(--green)",padding:"2px 8px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>⚡ {maxSpd}+ t/s</span>:null;
+          })()}
+          {quants.length>0&&(()=>{
+            const arr=quants.map(q=>q.vramReq).filter(v=>v>0);
+            if(!arr.length)return null;
+            const minVr=Math.min(...arr);
+            return isFinite(minVr)?<span style={{fontSize:10,background:"rgba(110,80,255,0.1)",color:"var(--accent2)",padding:"2px 8px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>min {minVr} GB</span>:null;
+          })()}
+          <a href={safeUrl(model.hfUrl)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10,color:"var(--accent2)",textDecoration:"none",padding:"2px 8px",borderRadius:5,background:"rgba(110,80,255,0.1)"}}>↗ HuggingFace</a>
+          {live&&fmtDL(live.downloads_30d)&&<span title="Monthly downloads" style={{fontSize:10,color:"var(--green)",padding:"2px 8px",borderRadius:5,background:"rgba(0,229,160,0.08)",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>↓ {fmtDL(live.downloads_30d)}/mo</span>}
+          {live?.likes&&<span title="HuggingFace likes" style={{fontSize:10,color:"var(--amber)",padding:"2px 8px",borderRadius:5,background:"rgba(255,183,77,0.1)",fontWeight:700}}>♥ {fmtDL(live.likes)}</span>}
+          {live?.lastModified&&<span style={{fontSize:10,color:"var(--text3)"}}>🔄 {fmtAge(live.lastModified)}</span>}
+          <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)",fontWeight:500}}>{open?"▲ Hide":"▼ Details"}</span>
         </div>
       </div>
 
+      {/* ── Expanded detail panel ─────────────────── */}
       {open&&(
-        <div style={{padding:"0 15px 15px",borderTop:"1px solid var(--border)"}}>
-          {/* Quantizations table */}
-          <div style={{fontWeight:700,fontSize:11,color:"var(--text2)",margin:"12px 0 8px"}}>Quantizations & File Formats</div>
-          {model._custom&&model.quants.length===0&&(
-            <div style={{padding:"16px",background:"rgba(110,80,255,0.05)",borderRadius:10,border:"1px dashed var(--border)",marginBottom:12,textAlign:"center"}}>
-              <div style={{fontSize:12,color:"var(--text2)",marginBottom:6}}>No quantization data for custom model.</div>
-              <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap",fontSize:11}}>
+        <div style={{padding:"0 18px 18px",borderTop:"1px solid var(--border)"}}>
+
+          {/* Custom model placeholder */}
+          {model._custom&&quants.length===0&&(
+            <div style={{margin:"14px 0",padding:"18px",background:"rgba(110,80,255,0.05)",borderRadius:12,border:"1px dashed var(--border)",textAlign:"center"}}>
+              <div style={{fontSize:13,color:"var(--text2)",marginBottom:8,fontWeight:600}}>No quantization data — custom model from HuggingFace</div>
+              <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap",fontSize:12}}>
                 {model._liveDownloads!=null&&<span style={{color:"var(--green)",fontWeight:700}}>↓ {fmtDL(model._liveDownloads)}/mo</span>}
                 {model._liveLikes!=null&&<span style={{color:"var(--amber)",fontWeight:700}}>♥ {fmtDL(model._liveLikes)}</span>}
                 {model._liveModified&&<span style={{color:"var(--text3)"}}>🔄 {fmtAge(model._liveModified)}</span>}
-                {model._livePipeline&&<span style={{color:"var(--accent2)",background:"rgba(110,80,255,0.1)",padding:"1px 7px",borderRadius:5}}>{model._livePipeline}</span>}
+                {model._livePipeline&&<span style={{color:"var(--accent2)",background:"rgba(110,80,255,0.1)",padding:"2px 8px",borderRadius:5}}>{model._livePipeline}</span>}
               </div>
-              {model._liveTags?.length>0&&<div style={{marginTop:8,display:"flex",gap:4,flexWrap:"wrap",justifyContent:"center"}}>{model._liveTags.slice(0,10).map(t=><span key={t} style={{fontSize:9,padding:"2px 6px",borderRadius:5,background:"rgba(110,80,255,0.08)",color:"var(--accent2)"}}>{t}</span>)}</div>}
-              <a href={safeUrl(model.hfUrl)} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:10,fontSize:11,color:"var(--accent2)",textDecoration:"none",padding:"5px 14px",borderRadius:7,background:"rgba(110,80,255,0.12)",border:"1px solid var(--border)"}}>View full model on HuggingFace ↗</a>
+              {model._liveTags?.length>0&&<div style={{marginTop:10,display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center"}}>{model._liveTags.slice(0,10).map(t=><span key={t} style={{fontSize:10,padding:"2px 8px",borderRadius:5,background:"rgba(110,80,255,0.08)",color:"var(--accent2)"}}>{t}</span>)}</div>}
+              <a href={safeUrl(model.hfUrl)} target="_blank" rel="noopener noreferrer" style={{display:"inline-block",marginTop:12,fontSize:12,color:"var(--accent2)",textDecoration:"none",padding:"6px 16px",borderRadius:8,background:"rgba(110,80,255,0.12)",border:"1px solid var(--border)"}}>View on HuggingFace ↗</a>
             </div>
           )}
-          <div style={{overflowX:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
-              <thead><tr style={{borderBottom:"1px solid var(--border)"}}>
-                {["Format","Size","VRAM Req","Speed (t/s)","Quality","Perplexity","Bits/W"].map(h=>(
-                  <th key={h} style={{textAlign:h==="Format"?"left":"right",padding:"4px 8px",color:"var(--text3)",fontWeight:600,whiteSpace:"nowrap",fontSize:10}}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {model.quants.map(q=>{
-                  const fits=totalVram>0&&totalVram>=q.vramReq;
-                  return(
-                    <tr key={q.format} style={{borderBottom:"1px solid rgba(255,255,255,0.03)",background:fits?"rgba(0,229,160,0.03)":"transparent"}}>
-                      <td style={{padding:"5px 8px",fontWeight:700,fontFamily:"'JetBrains Mono', monospace",color:fits?"var(--green)":"var(--text)"}}>{q.format}</td>
-                      <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"'JetBrains Mono', monospace"}}>{q.size} GB</td>
-                      <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"'JetBrains Mono', monospace",color:fits?"var(--green)":"var(--red)"}}>{q.vramReq} GB{fits?" ✓":""}</td>
-                      <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"'JetBrains Mono', monospace"}}>{q.speed}</td>
-                      <td style={{padding:"5px 8px",textAlign:"right"}}>
-                        <span style={{color:q.quality>=95?"var(--green)":q.quality>=85?"var(--amber)":"var(--red)",fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>{q.quality}%</span>
-                      </td>
-                      <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"'JetBrains Mono', monospace",color:"var(--text2)"}}>{q.ppl}</td>
-                      <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"'JetBrains Mono', monospace",color:"var(--text3)"}}>{q.bpw}</td>
+
+          {/* Quantizations table */}
+          {quants.length>0&&(
+            <>
+              <div style={{fontWeight:700,fontSize:12,color:"var(--text2)",margin:"14px 0 8px",display:"flex",alignItems:"center",gap:6}}>
+                📦 Quantizations & File Formats
+                <span style={{fontSize:10,color:"var(--text3)",fontWeight:400}}>— rows highlighted green fit your current build VRAM</span>
+              </div>
+              <div style={{overflowX:"auto",borderRadius:10,border:"1px solid var(--border2)"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5,minWidth:520}}>
+                  <thead>
+                    <tr style={{background:"rgba(255,255,255,0.03)",borderBottom:"1px solid var(--border)"}}>
+                      {[["Format","left"],["File Size","right"],["VRAM Req","right"],["Speed (t/s)","right"],["Quality","right"],["Perplexity","right"],["Bits/W","right"]].map(([h,a])=>(
+                        <th key={h} style={{textAlign:a,padding:"8px 12px",color:"var(--text3)",fontWeight:600,whiteSpace:"nowrap",fontSize:11,letterSpacing:.2}}>{h}</th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {quants.map(q=>{
+                      const fits=totalVram>0&&totalVram>=q.vramReq;
+                      return(
+                        <tr key={q.format} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",background:fits?"rgba(0,229,160,0.04)":"transparent",transition:"background .15s"}}>
+                          <td style={{padding:"8px 12px",fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:fits?"var(--green)":"var(--text)",fontSize:12.5}}>{q.format}</td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:"var(--text2)",fontSize:12}}>{q.size} GB</td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",fontSize:12}}>
+                            <span style={{color:fits?"var(--green)":"var(--red)",fontWeight:fits?700:400}}>{q.vramReq} GB{fits?" ✓":""}</span>
+                          </td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:"var(--text)",fontWeight:600,fontSize:12}}>{q.speed}</td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontSize:12}}>
+                            <span style={{color:q.quality>=95?"var(--green)":q.quality>=85?"var(--amber)":"var(--red)",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{q.quality}%</span>
+                          </td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:"var(--text2)",fontSize:12}}>{q.ppl}</td>
+                          <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"'JetBrains Mono',monospace",color:"var(--text3)",fontSize:12}}>{q.bpw}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
 
           {/* Full Model Specification */}
           {(()=>{
-            const q4=model.quants.find(q=>q.format==="Q4_K_M");
-            const q8=model.quants.find(q=>q.format==="Q8_0");
-            const bf=model.quants.find(q=>q.format==="BF16");
-            const minVramArr=model.quants.map(q=>q.vramReq).filter(v=>v>0);const minVram=minVramArr.length?Math.min(...minVramArr):null;
+            const q4=quants.find(q=>q.format==="Q4_K_M");
+            const q8=quants.find(q=>q.format==="Q8_0");
+            const bf=quants.find(q=>q.format==="BF16");
+            const minVramArr=quants.map(q=>q.vramReq).filter(v=>v>0);
+            const minVram=minVramArr.length?Math.min(...minVramArr):null;
             const q4speed=q4?.speed||0;
             const estW=model.params>200?2000:model.params>100?1000:model.params>40?400:model.params>15?250:model.params>5?150:80;
-            const co2=q4speed>0?((estW*0.2278)/q4speed).toFixed(2):"N/A";
+            const co2=q4speed>0?((estW*0.2278)/q4speed).toFixed(2):"—";
             const specs=[
-              ["Parameters",`${model.params}B (${(model.params*1e9).toLocaleString()} total)`,"mono"],
-              ["Architecture",model.arch?`${model.arch.layers} layers · ${model.arch.heads} KV heads · dim ${model.arch.headDim}`:"—","mono"],
-              ["Context Window",`${fmtCtx(model.contextLen)} tokens (${model.contextLen.toLocaleString()})`,"mono"],
-              ["Storage — BF16",bf?`${bf.size} GB on disk`:"—","mono"],
-              ["Storage — Q4_K_M",q4?`${q4.size} GB on disk`:"—","mono"],
-              ["Storage — Q8_0",q8?`${q8.size} GB on disk`:"—","mono"],
-              ["Min VRAM Required",minVram?`${minVram} GB`:"—","mono"],
-              ["Developer",model.developer,"text"],
-              ["License",model.license,"text"],
-              ["Released",model.released,"text"],
-              ["Est. CO₂ / 1k tokens",co2!=="N/A"?`${co2} g CO₂ (India grid 0.82 kg/kWh)`:"N/A","mono"],
-              ["Math — GSM8K",model.benchmarks.gsm8k!=null?`${model.benchmarks.gsm8k}% · Grade School Math 8K`:"N/A","text"],
-              ["Reasoning — ARC-C",model.benchmarks.arc!=null?`${model.benchmarks.arc}% · AI2 Reasoning Challenge`:"N/A","text"],
-              ["Knowledge — MMLU",model.benchmarks.mmlu!=null?`${model.benchmarks.mmlu}% · 57-subject test`:"N/A","text"],
-              ["Code — HumanEval",model.benchmarks.humaneval!=null?`${model.benchmarks.humaneval}% · Python pass@1`:"N/A","text"],
+              {label:"Parameters",value:model.params>0?`${model.params}B  (${(model.params*1e9).toLocaleString()} weights)`:"—",mono:true},
+              {label:"Architecture",value:model.arch?`${model.arch.layers} layers · ${model.arch.heads} KV heads · dim ${model.arch.headDim}`:"—",mono:true},
+              {label:"Context Window",value:`${fmtCtx(model.contextLen)} tokens  (${model.contextLen.toLocaleString()})`,mono:true},
+              {label:"Min VRAM",value:minVram?`${minVram} GB (smallest quant)`:"—",mono:true},
+              {label:"BF16 on Disk",value:bf?`${bf.size} GB`:"—",mono:true},
+              {label:"Q4_K_M on Disk",value:q4?`${q4.size} GB`:"—",mono:true},
+              {label:"Q8_0 on Disk",value:q8?`${q8.size} GB`:"—",mono:true},
+              {label:"Developer",value:model.developer,mono:false},
+              {label:"License",value:model.license,mono:false},
+              {label:"Released",value:model.released,mono:false},
+              {label:"Est. CO₂ / 1k tok",value:co2!=="—"?`${co2} g  (India grid 0.82 kg CO₂/kWh)`:co2,mono:true},
             ];
+            const bmarks=[
+              {label:"MMLU — Knowledge",value:model.benchmarks?.mmlu!=null?`${model.benchmarks.mmlu}%`:null,desc:"57-subject language understanding"},
+              {label:"HellaSwag — Reasoning",value:model.benchmarks?.hellaswag!=null?`${model.benchmarks.hellaswag}%`:null,desc:"Commonsense NLI"},
+              {label:"ARC-C — Science",value:model.benchmarks?.arc!=null?`${model.benchmarks.arc}%`:null,desc:"AI2 Reasoning Challenge"},
+              {label:"GSM8K — Math",value:model.benchmarks?.gsm8k!=null?`${model.benchmarks.gsm8k}%`:null,desc:"Grade School Math"},
+              {label:"HumanEval — Code",value:model.benchmarks?.humaneval!=null?`${model.benchmarks.humaneval}%`:null,desc:"Python pass@1"},
+            ].filter(b=>b.value!=null);
             return(
-              <div style={{margin:"14px 0 12px",padding:"12px 14px",background:"rgba(110,80,255,0.04)",borderRadius:10,border:"1px solid var(--border2)"}}>
-                <div style={{fontWeight:700,fontSize:11,color:"var(--text2)",marginBottom:10,textTransform:"uppercase",letterSpacing:.5}}>📋 Full Model Specification</div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(178px,1fr))",gap:"7px 14px"}}>
-                  {specs.map(([k,v,t])=>(
-                    <div key={k}>
-                      <div style={{fontSize:9,color:"var(--text3)",fontWeight:700,textTransform:"uppercase",letterSpacing:.3,marginBottom:2}}>{k}</div>
-                      <div style={{fontSize:10,color:"var(--text)",lineHeight:1.4,fontFamily:t==="mono"?"'JetBrains Mono',monospace":"inherit",fontWeight:t==="mono"?600:500}}>{v}</div>
+              <div style={{margin:"16px 0 14px"}}>
+                <div style={{fontWeight:700,fontSize:12,color:"var(--text2)",marginBottom:10}}>📋 Full Model Specification</div>
+                {/* Spec grid */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"10px 20px",padding:"14px 16px",background:"rgba(110,80,255,0.04)",borderRadius:12,border:"1px solid var(--border2)",marginBottom:12}}>
+                  {specs.map(({label,value,mono})=>(
+                    <div key={label}>
+                      <div style={{fontSize:10,color:"var(--text3)",fontWeight:600,textTransform:"uppercase",letterSpacing:.4,marginBottom:3}}>{label}</div>
+                      <div style={{fontSize:12.5,color:"var(--text)",lineHeight:1.4,fontFamily:mono?"'JetBrains Mono',monospace":"inherit",fontWeight:mono?600:500}}>{value}</div>
                     </div>
                   ))}
                 </div>
+                {/* Benchmark detail */}
+                {bmarks.length>0&&(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))",gap:8}}>
+                    {bmarks.map(({label,value,desc})=>{
+                      const pct=parseFloat(value);
+                      const col=pct>=85?"var(--green)":pct>=70?"var(--amber)":"var(--red)";
+                      return(
+                        <div key={label} style={{padding:"10px 12px",background:"rgba(255,255,255,0.025)",borderRadius:10,border:"1px solid var(--border2)"}}>
+                          <div style={{fontSize:10,color:"var(--text3)",fontWeight:600,marginBottom:2}}>{label}</div>
+                          <div style={{fontSize:9,color:"var(--text3)",marginBottom:6,lineHeight:1.3}}>{desc}</div>
+                          <div style={{fontSize:20,fontWeight:800,color:col,fontFamily:"'JetBrains Mono',monospace",lineHeight:1,marginBottom:6}}>{value}</div>
+                          <div style={{height:4,background:"var(--surface3)",borderRadius:2,overflow:"hidden"}}>
+                            <div style={{width:`${pct}%`,height:"100%",background:col,borderRadius:2}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })()}
 
           {/* Stress Tests */}
-          <div style={{fontWeight:700,fontSize:11,color:"var(--text2)",margin:"14px 0 8px"}}>⚡ Stress Test Results</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:6}}>
-            {model.stressTests.map((st,i)=>(
-              <div key={i} style={{padding:"9px 11px",background:"rgba(255,255,255,0.025)",borderRadius:9,border:"1px solid var(--border2)"}}>
-                <div style={{fontWeight:700,fontSize:11,color:"var(--text)",marginBottom:5}}>{st.hw}</div>
-                <div style={{display:"flex",gap:5,flexWrap:"wrap",fontSize:10}}>
-                  <span style={{color:"var(--accent2)",fontFamily:"'JetBrains Mono', monospace",fontWeight:700}}>{st.tokens_sec}t/s</span>
-                  <span style={{color:"var(--text3)",fontFamily:"'JetBrains Mono', monospace"}}>{st.latency_ms}ms</span>
-                  <span style={{color:"var(--text2)",fontFamily:"'JetBrains Mono', monospace"}}>{st.vram_used}GB</span>
-                  {st.ctx&&<span style={{color:"var(--text3)",fontFamily:"'JetBrains Mono', monospace"}}>{fmtCtx(st.ctx)}ctx</span>}
-                  <span style={{marginLeft:"auto",fontWeight:800,padding:"1px 7px",borderRadius:5,background:st.score>=90?"rgba(0,229,160,0.15)":st.score>=75?"rgba(255,184,48,0.15)":"rgba(255,75,110,0.15)",color:st.score>=90?"var(--green)":st.score>=75?"var(--amber)":"var(--red)",fontFamily:"'JetBrains Mono', monospace",fontSize:11}}>{st.score}/100</span>
-                </div>
+          {model.stressTests?.length>0&&(
+            <>
+              <div style={{fontWeight:700,fontSize:12,color:"var(--text2)",margin:"14px 0 8px"}}>⚡ Hardware Benchmark Results</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+                {model.stressTests.map((st,i)=>(
+                  <div key={i} style={{padding:"12px 14px",background:"rgba(255,255,255,0.025)",borderRadius:10,border:"1px solid var(--border2)"}}>
+                    <div style={{fontWeight:700,fontSize:12,color:"var(--text)",marginBottom:8}}>{st.hw}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"5px 10px",fontSize:11,marginBottom:6}}>
+                      <div><span style={{color:"var(--text3)"}}>Throughput</span><br/><strong style={{color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>{st.tokens_sec} t/s</strong></div>
+                      <div><span style={{color:"var(--text3)"}}>Latency</span><br/><strong style={{color:"var(--amber)",fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>{st.latency_ms} ms</strong></div>
+                      <div><span style={{color:"var(--text3)"}}>VRAM Used</span><br/><strong style={{color:"var(--text)",fontFamily:"'JetBrains Mono',monospace"}}>{st.vram_used} GB</strong></div>
+                      {st.ctx&&<div><span style={{color:"var(--text3)"}}>Context</span><br/><strong style={{color:"var(--text2)",fontFamily:"'JetBrains Mono',monospace"}}>{fmtCtx(st.ctx)}</strong></div>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{flex:1,height:5,background:"var(--surface3)",borderRadius:3,overflow:"hidden"}}>
+                        <div style={{width:`${st.score}%`,height:"100%",background:st.score>=90?"var(--green)":st.score>=75?"var(--amber)":"var(--red)",borderRadius:3}}/>
+                      </div>
+                      <span style={{fontWeight:800,fontSize:13,color:st.score>=90?"var(--green)":st.score>=75?"var(--amber)":"var(--red)",fontFamily:"'JetBrains Mono',monospace",minWidth:36,textAlign:"right"}}>{st.score}/100</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
 
-          {/* Benchmark legend */}
-          <div style={{marginTop:12,padding:"10px 12px",background:"rgba(255,255,255,0.02)",borderRadius:9,border:"1px solid var(--border2)"}}>
-            <div style={{fontWeight:700,fontSize:10,color:"var(--text3)",marginBottom:7,textTransform:"uppercase",letterSpacing:.5}}>Benchmark Glossary</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"5px 12px"}}>
+          {/* Benchmark glossary */}
+          <div style={{marginTop:14,padding:"12px 14px",background:"rgba(255,255,255,0.02)",borderRadius:10,border:"1px solid var(--border2)"}}>
+            <div style={{fontWeight:700,fontSize:11,color:"var(--text3)",marginBottom:8,textTransform:"uppercase",letterSpacing:.4}}>Benchmark Glossary</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:"6px 16px"}}>
               {[
-                ["MMLU","Massive Multitask Language Understanding — 57 subject knowledge test (0–100%)"],
-                ["HellaSwag","Commonsense NLI Reasoning — sentence completion (0–100%)"],
-                ["ARC-C","AI2 Reasoning Challenge — science Q&A, hard set (0–100%)"],
-                ["GSM8K","Grade School Math 8K — multi-step math word problems (0–100%)"],
-                ["HumanEval","Python Code Generation — pass@1 functional correctness (0–100%)"],
-                ["PPL","Perplexity — lower = better language model fit"],
-                ["BPW","Bits Per Weight — compression level of GGUF quantization"],
-                ["t/s","Tokens Per Second — generation throughput on hardware"],
+                ["MMLU","57-subject knowledge test across academic domains (0–100%)"],
+                ["HellaSwag","Commonsense NLI — sentence completion in context (0–100%)"],
+                ["ARC-C","AI2 Reasoning Challenge — hard-set science Q&A (0–100%)"],
+                ["GSM8K","Grade School Math — multi-step arithmetic word problems (0–100%)"],
+                ["HumanEval","Python code generation — pass@1 functional correctness (0–100%)"],
+                ["PPL","Perplexity — lower = better language model fit to text"],
+                ["BPW","Bits Per Weight — compression depth of GGUF quantization"],
+                ["t/s","Tokens Per Second — generation throughput on target hardware"],
               ].map(([k,v])=>(
-                <div key={k} style={{display:"flex",gap:5,alignItems:"flex-start"}}>
-                  <span style={{fontSize:9,fontWeight:800,color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace",flexShrink:0,minWidth:72,paddingTop:1}}>{k}</span>
-                  <span style={{fontSize:9,color:"var(--text3)",lineHeight:1.4}}>{v}</span>
+                <div key={k} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                  <span style={{fontSize:10,fontWeight:800,color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace",flexShrink:0,minWidth:76,paddingTop:1}}>{k}</span>
+                  <span style={{fontSize:10,color:"var(--text3)",lineHeight:1.45}}>{v}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div style={{marginTop:12,display:"flex",gap:6,flexWrap:"wrap"}}>
-            <button onClick={()=>onSelect(model)} style={{padding:"5px 13px",borderRadius:8,background:selectedModel?.id===model.id?"var(--accent)":"rgba(110,80,255,0.15)",color:selectedModel?.id===model.id?"#fff":"var(--accent2)",border:"1px solid var(--accent)",cursor:"pointer",fontSize:11,fontWeight:700,fontFamily:"inherit",transition:"all .15s"}}>
-              {selectedModel?.id===model.id?"✓ Selected for KV Calc":"Select for KV Calc"}
+          {/* Action buttons */}
+          <div style={{marginTop:14,display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={()=>onSelect(model)} style={{
+              padding:"7px 16px",borderRadius:9,fontFamily:"inherit",fontSize:12,fontWeight:700,cursor:"pointer",transition:"all .15s",
+              background:isSelected?"var(--accent)":"rgba(110,80,255,0.15)",
+              color:isSelected?"#fff":"var(--accent2)",
+              border:`1px solid ${isSelected?"var(--accent)":"var(--accent)"}`,
+            }}>
+              {isSelected?"✓ Selected for Tools":"Select for Tools"}
             </button>
-            <button onClick={()=>onCompareA(model)} style={{padding:"5px 13px",borderRadius:8,background:isA?"rgba(110,80,255,0.2)":"transparent",color:isA?"var(--accent2)":"var(--text2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}>Compare A</button>
-            <button onClick={()=>onCompareB(model)} style={{padding:"5px 13px",borderRadius:8,background:isB?"rgba(0,229,160,0.2)":"transparent",color:isB?"var(--green)":"var(--text2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}>Compare B</button>
+            <button onClick={()=>onCompareA(model)} style={{padding:"7px 14px",borderRadius:9,background:isA?"rgba(110,80,255,0.2)":"transparent",color:isA?"var(--accent2)":"var(--text2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>Compare A</button>
+            <button onClick={()=>onCompareB(model)} style={{padding:"7px 14px",borderRadius:9,background:isB?"rgba(0,229,160,0.2)":"transparent",color:isB?"var(--green)":"var(--text2)",border:"1px solid var(--border)",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>Compare B</button>
           </div>
         </div>
       )}
@@ -2099,9 +2184,10 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
     let modelVram,modelLabel,baseTps;
     if(selectedModel){
       // Pick the best-fitting quant for the actual build VRAM; fall back to BF16 if nothing fits
-      const fitsQ=selectedModel.quants.filter(q=>q.vramReq<=totalVram);
-      const q=fitsQ.length?fitsQ[0]:selectedModel.quants[0];
-      modelVram=q?.vramReq||selectedModel.params*2;
+      const qs=selectedModel.quants||[];
+      const fitsQ=qs.filter(q=>q.vramReq<=totalVram);
+      const q=fitsQ.length?fitsQ[0]:(qs[0]||null);
+      modelVram=q?.vramReq||Math.max(selectedModel.params*2,4);
       modelLabel=selectedModel.name;
       const cat=selectedModel.params<=9?"llama8b":"llama70b";
       baseTps=(hw?.tokensPerSec?.[cat]||40)*numGpu;
