@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add src/*)",
+      "Bash(git commit*)",
+      "Bash(git push origin main)",
+      "Bash(git pull)",
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm run lint)",
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(npm ci)",
+      "Bash(npm audit)"
+    ],
+    "deny": [
+      "Bash(rm*)",
+      "Bash(curl*)",
+      "Bash(wget*)",
+      "Bash(Invoke-WebRequest*)",
+      "Bash(Invoke-Expression*)",
+      "Bash(iex*)",
+      "Bash(Start-Process*)",
+      "Bash(powershell*-enc*)",
+      "Bash(cmd /c*)",
+      "Bash(eval*)",
+      "Bash(python -c*)",
+      "Bash(python3 -c*)",
+      "Bash(pip install*)",
+      "Bash(ssh*)",
+      "Bash(netcat*)",
+      "Bash(nmap*)",
+      "Bash(sudo*)",
+      "Bash(taskkill*)",
+      "Bash(Stop-Process*)",
+      "Bash(reg *)",
+      "Bash(schtasks*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)"
+    ]
+  }
+}
