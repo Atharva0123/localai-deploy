@@ -459,7 +459,7 @@ run_request(){
   local eval_count; eval_count=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_count',0))" 2>/dev/null || echo 0)
   local eval_ns; eval_ns=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_duration',1))" 2>/dev/null || echo 1)
   local tps; tps=$(python3 -c "print(round($eval_count / max($eval_ns * 1e-9, 0.001), 2))" 2>/dev/null || echo 0)
-  echo "req=$idx latency=${elapsed}ms tokens=$eval_count tps=$tps" | tee -a "$RESULTS_FILE"
+  echo "req=$idx latency=\${elapsed}ms tokens=$eval_count tps=$tps" | tee -a "$RESULTS_FILE"
 }
 
 export -f run_request
@@ -2091,10 +2091,14 @@ function StressTestDeployer({selectedMap,selectedModel}){
 
   const script=useMemo(()=>{
     if(!hasModel||!hasHw)return"# Select a model and add hardware to your build first.";
-    if(scriptType==="ollama") return buildOllamaScript(params);
-    if(scriptType==="llamacpp") return buildLlamaCppScript(params);
-    if(scriptType==="vllm") return buildVllmScript(params);
-    return buildPythonScript(params);
+    try{
+      if(scriptType==="ollama") return buildOllamaScript(params);
+      if(scriptType==="llamacpp") return buildLlamaCppScript(params);
+      if(scriptType==="vllm") return buildVllmScript(params);
+      return buildPythonScript(params);
+    }catch(e){
+      return`# Script generation error: ${e.message}\n# Please check your model and hardware selection.`;
+    }
   },[scriptType,params,hasModel,hasHw]);
 
   const ext=scriptType==="python"?".py":".sh";
