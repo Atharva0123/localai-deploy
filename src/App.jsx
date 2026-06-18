@@ -888,8 +888,17 @@ function VramCalc({selectedMap}){
   const [batch,setBatch]=useState(1);
   const bpwTbl={"BF16":16,"GGUF FP16":16,"Q8_0":8,"Q6_K":6.5,"Q5_K_M":5.5,"Q5_K_S":5.25,"Q5_0":5,"Q4_K_M":4.5,"Q4_K_S":4.25,"Q4_0":4,"Q4_1":4,"IQ4_XS":4.25,"Q3_K_L":3.5,"Q3_K_M":3.35,"Q3_K_S":3.25,"IQ3_M":3.06,"Q2_K":2.63,"IQ2_XXS":2.3,"IQ1_S":1.56};
   const bits=bpwTbl[quant]||4.5;
+  // Model weights: params (B) × bits-per-weight ÷ 8 = bytes → GB
   const modelGB=parseFloat(((params*1e9*bits/8)/1e9).toFixed(2));
-  const kvGB=parseFloat((ctx*batch*params*0.04e6/1e9).toFixed(2));
+
+  // KV Cache: 2 × Layers × KV-Heads × HeadDim × ContextLen × Batch × 2 bytes (FP16)
+  // Architecture estimated from parameter count (GQA-style modern LLMs)
+  const estL=params<=1?22:params<=3?26:params<=7?32:params<=9?32:params<=14?40:params<=27?46:params<=72?80:80;
+  const estH=8;   // GQA standard: 8 KV heads for most modern models
+  const estD=params<=3?96:128; // head dimension
+  const kvBytes=2*estL*estH*estD*ctx*batch*2; // 2 bytes = FP16
+  const kvGB=parseFloat((kvBytes/1e9).toFixed(3));
+
   const total=parseFloat((modelGB+kvGB).toFixed(1));
   const fits=Object.entries(selectedMap).filter(([id,qty])=>{const h=ALL_HW.find(x=>x.id===id);return h&&h.vram*qty>=total;});
   return(
@@ -912,15 +921,24 @@ function VramCalc({selectedMap}){
           </select>
         </div>
       </div>
-      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
+      <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:12}}>
         <div style={{background:"rgba(110,80,255,0.1)",borderRadius:12,padding:"14px 20px",textAlign:"center",border:"1px solid rgba(110,80,255,0.25)"}}>
           <div style={{fontSize:9,color:"var(--accent2)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>Est. VRAM</div>
           <div style={{fontSize:28,fontWeight:800,color:"var(--accent2)",fontFamily:"'JetBrains Mono', monospace"}}>{total} GB</div>
-          <div style={{fontSize:9,color:"var(--text3)"}}>{modelGB}GB model + {kvGB}GB KV cache</div>
+          <div style={{fontSize:9,color:"var(--text3)"}}>{modelGB} GB model + {kvGB} GB KV cache</div>
         </div>
         <div style={{background:fits.length>0?"rgba(0,229,160,0.08)":"rgba(255,75,110,0.08)",borderRadius:12,padding:"14px 20px",textAlign:"center",border:`1px solid ${fits.length>0?"rgba(0,229,160,0.25)":"rgba(255,75,110,0.25)"}`}}>
           <div style={{fontSize:9,fontWeight:700,color:fits.length>0?"var(--green)":"var(--red)",textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>Build HW</div>
           <div style={{fontSize:18,fontWeight:700,color:fits.length>0?"var(--green)":"var(--red)",fontFamily:"'JetBrains Mono', monospace"}}>{Object.keys(selectedMap).length===0?"No HW":fits.length>0?`${fits.length} Fit ✓`:"None Fit ✗"}</div>
+        </div>
+      </div>
+      {/* Formula box */}
+      <div style={{background:"rgba(110,80,255,0.06)",borderRadius:9,padding:"10px 13px",border:"1px solid rgba(110,80,255,0.18)"}}>
+        <div style={{fontSize:9,color:"var(--accent2)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:5}}>Formulas</div>
+        <div style={{fontSize:10,color:"var(--text2)",lineHeight:1.8,fontFamily:"'JetBrains Mono',monospace"}}>
+          <div><span style={{color:"var(--text3)"}}>Model weights:</span> {params}B × {bits} bpw ÷ 8 = <span style={{color:"var(--accent2)",fontWeight:700}}>{modelGB} GB</span></div>
+          <div><span style={{color:"var(--text3)"}}>KV cache:</span> 2 × L{estL} × H{estH} × d{estD} × {ctx.toLocaleString()} ctx × {batch} batch × 2B = <span style={{color:"var(--amber)",fontWeight:700}}>{kvGB} GB</span></div>
+          <div style={{fontSize:9,color:"var(--text3)",marginTop:3}}>L=layers, H=KV-heads, d=head-dim estimated from {params}B param count (GQA model).</div>
         </div>
       </div>
     </div>
@@ -943,7 +961,8 @@ function BuildPanel({selectedMap,onQty,onClear}){
   const totalFP16=entries.reduce((a,{h,qty})=>a+h.fp16*qty,0);
   const totalFP8=entries.reduce((a,{h,qty})=>a+(h.fp8||0)*qty,0);
   const compatModels=MODELS.filter(m=>m.quants.some(q=>q.vramReq<=totalVram));
-  const monthlyPower=totalTDP*.24*30*.12;
+  // Power: (TDP_W ÷ 1000) × 24 h/day × 30 days × ₹8/kWh (India avg)
+  const monthlyPowerINR=Math.round((totalTDP/1000)*24*30*8);
   return(
     <div className="fade-up">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -960,7 +979,7 @@ function BuildPanel({selectedMap,onQty,onClear}){
           {l:"FP8 TFLOPS",v:totalFP8?fmtTF(totalFP8):"N/A",c:"var(--accent3)"},
           {l:"Cost USD",v:fmtUSD(totalUSD),c:"#5599ff"},
           {l:"Cost INR",v:fmtINR(totalUSD),c:"var(--green)"},
-          {l:"Power/Month",v:`₹${Math.round(monthlyPower).toLocaleString("en-IN")}`,c:"var(--amber)"},
+          {l:"Power/Month",v:`₹${monthlyPowerINR.toLocaleString("en-IN")}`,c:"var(--amber)"},
           {l:"Models Fit",v:`${compatModels.length}/${MODELS.length}`,c:compatModels.length>0?"var(--green)":"var(--red)"},
         ].map(({l,v,c})=>(
           <div key={l} style={{background:"rgba(255,255,255,0.03)",borderRadius:10,padding:"10px 12px",border:"1px solid var(--border2)"}}>
@@ -1294,21 +1313,32 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
         :45*numGpu;
     }
 
-    const kvMbPerTok=0.156;
+    // KV cache bytes per token: 2 × Layers × KV-Heads × HeadDim × 2 bytes (FP16)
+    // Use model architecture when available, otherwise estimate for a 7B model
+    const kvLayers=selectedModel?.arch?.layers||32;
+    const kvHeads=selectedModel?.arch?.heads||8;
+    const kvHeadDim=selectedModel?.arch?.headDim||128;
+    const kvBytesPerTok=2*kvLayers*kvHeads*kvHeadDim*2; // FP16
+    const kvMbPerTok=kvBytesPerTok/(1024*1024);
+    // Total KV per concurrent user = (prompt+response) tokens × bytes/token
     const kvGbPerUser=((avgPrompt+avgResponse)*kvMbPerTok)/1024;
     const vramUsed=Math.min(modelVram+kvGbPerUser*concUsers+2,totalVram);
     const vramPct=Math.min(100,(vramUsed/totalVram)*100);
 
     const maxByVram=Math.max(1,Math.floor((totalVram-modelVram-2)/Math.max(kvGbPerUser,0.001)));
+    // Batched throughput: sqrt scaling models the sub-linear gain from batching (up to 6× max)
     const batchedTps=baseTps*Math.min(Math.sqrt(Math.max(concUsers,1)),6);
-    const targetLatency=30;
-    const gpuUtil=Math.min(100,((concUsers*avgResponse)/targetLatency)/Math.max(batchedTps,1)*100);
+    // TTFT: prefill (prompt processing) at 10× decode speed
     const prefillTps=baseTps*10;
     const ttft=Math.max(0.05,avgPrompt/Math.max(prefillTps,1));
+    // GPU util: fraction of decode capacity consumed by all concurrent responses
+    const targetDecodeWindow=30; // seconds window for GPU util estimate
+    const gpuUtil=Math.min(100,((concUsers*avgResponse)/targetDecodeWindow)/Math.max(batchedTps,1)*100);
     const queueDepth=Math.max(0,concUsers-maxByVram);
     const errorRate=queueDepth>10?Math.min(50,(queueDepth-10)*2):0;
     const concHeadroom=Math.max(0,Math.min(100,100-Math.max(vramPct,gpuUtil)));
     const status=gpuUtil>90||vramPct>90?"Critical":gpuUtil>75||vramPct>80?"Warning":"Normal";
+    const kvFormula={kvLayers,kvHeads,kvHeadDim,kvBytesPerTok,kvMbPerTok};
 
     const dotCount=Math.min(concUsers,60);
     const states=Array.from({length:dotCount},(_,i)=>{
@@ -1317,7 +1347,7 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
       return"processing";
     });
 
-    return{hw,numGpu,totalVram,modelLabel,modelVram,vramUsed,vramPct,gpuUtil,ttft,queueDepth,errorRate,concHeadroom,status,states};
+    return{hw,numGpu,totalVram,modelLabel,modelVram,vramUsed,vramPct,gpuUtil,ttft,queueDepth,errorRate,concHeadroom,status,states,kvFormula,kvGbPerUser,batchedTps,baseTps};
   },[selectedMap,selectedModel,concUsers,avgPrompt,avgResponse]);
 
   const STATUS_COL={Normal:"var(--green)",Warning:"var(--amber)",Critical:"var(--red)"};
@@ -1400,12 +1430,103 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
       <div style={{padding:"10px 14px",borderRadius:9,background:sc+"18",border:`1px solid ${sc}44`,fontSize:11,color:"var(--text2)",lineHeight:1.5}}>
         <span style={{color:sc,fontWeight:700}}>●</span>{" "}{msgText}
       </div>
+
+      {/* Formula annotations */}
+      <div style={{marginTop:14,background:"rgba(110,80,255,0.06)",borderRadius:9,padding:"10px 13px",border:"1px solid rgba(110,80,255,0.18)"}}>
+        <div style={{fontSize:9,color:"var(--accent2)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>Formulas Used</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:"5px 16px",fontSize:10,fontFamily:"'JetBrains Mono',monospace",lineHeight:1.8,color:"var(--text2)"}}>
+          <div><span style={{color:"var(--text3)"}}>KV bytes/token</span> = 2 × L{calc.kvFormula.kvLayers} × H{calc.kvFormula.kvHeads} × d{calc.kvFormula.kvHeadDim} × 2B = <span style={{color:"var(--accent2)",fontWeight:700}}>{(calc.kvFormula.kvMbPerTok*1024).toFixed(0)} KB/tok</span></div>
+          <div><span style={{color:"var(--text3)"}}>KV per user</span> = (prompt+resp) × KB/tok ÷ 1024 = ({avgPrompt}+{avgResponse}) × {(calc.kvFormula.kvMbPerTok*1024).toFixed(0)} KB ÷ 1024 = <span style={{color:"var(--amber)",fontWeight:700}}>{calc.kvGbPerUser.toFixed(3)} GB</span></div>
+          <div><span style={{color:"var(--text3)"}}>Batched TPS</span> = base_tps × min(√users, 6) = {calc.baseTps} × {Math.min(Math.sqrt(Math.max(concUsers,1)),6).toFixed(2)} = <span style={{color:"var(--green)",fontWeight:700}}>{Math.round(calc.batchedTps)} t/s</span></div>
+          <div><span style={{color:"var(--text3)"}}>TTFT</span> = prompt_tokens ÷ prefill_tps = {avgPrompt} ÷ {calc.baseTps*10} = <span style={{color:"var(--text)",fontWeight:700}}>{calc.ttft<1?`${(calc.ttft*1000).toFixed(0)}ms`:`${calc.ttft.toFixed(2)}s`}</span></div>
+          <div><span style={{color:"var(--text3)"}}>GPU util</span> = (users × resp_tokens ÷ 30s) ÷ batched_tps × 100 = <span style={{color:calc.gpuUtil>90?"var(--red)":calc.gpuUtil>75?"var(--amber)":"var(--green)",fontWeight:700}}>{calc.gpuUtil.toFixed(0)}%</span></div>
+          <div style={{fontSize:9,color:"var(--text3)",fontFamily:"inherit"}}>Architecture: {selectedModel?`${selectedModel.name} (${calc.kvFormula.kvLayers}L × ${calc.kvFormula.kvHeads}H × ${calc.kvFormula.kvHeadDim}d)`:"Default 7B estimate (32L × 8H × 128d)"}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── POWER COST CALCULATOR ────────────────────────────────────────────────────
+function PowerCostCalc({selectedMap}){
+  const [rateINR,setRateINR]=useState(8);     // ₹/kWh
+  const [hoursDay,setHoursDay]=useState(24);  // operating hours per day
+  const [pue,setPue]=useState(1.2);           // Power Usage Effectiveness (datacenter overhead)
+
+  if(!selectedMap||Object.keys(selectedMap).length===0){
+    return(
+      <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"18px 20px"}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:10,color:"var(--text)"}}>⚡ Power Cost Calculator</div>
+        <div style={{color:"var(--text3)",fontSize:12}}>Add hardware to your build to estimate power costs.</div>
+      </div>
+    );
+  }
+  const entries=Object.entries(selectedMap).map(([id,qty])=>{const h=ALL_HW.find(x=>x.id===id);return h?{h,qty}:null;}).filter(Boolean);
+  const totalW=entries.reduce((a,{h,qty})=>a+h.tdp*qty,0);
+  const effectiveW=totalW*pue;                // wall-power including cooling overhead
+  // Formula: (W ÷ 1000) × hours/day × days × ₹/kWh × PUE
+  const dailyINR=(effectiveW/1000)*hoursDay*rateINR;
+  const monthlyINR=dailyINR*30;
+  const annuallyINR=dailyINR*365;
+  const monthlyUSD=monthlyINR/(_liveRate||83.5);
+  const annuallyUSD=annuallyINR/(_liveRate||83.5);
+  const kwhPerMonth=(effectiveW/1000)*hoursDay*30;
+
+  return(
+    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"18px 20px"}}>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:4,color:"var(--text)"}}>⚡ Power Cost Calculator</div>
+      <div style={{fontSize:10,color:"var(--text3)",marginBottom:14}}>Actual wall-power cost including cooling overhead (PUE).</div>
+
+      {/* Sliders */}
+      <div style={{background:"rgba(255,255,255,0.02)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+        {[
+          ["Electricity rate","₹/kWh",rateINR,setRateINR,3,20,0.5],
+          ["GPU hours / day","h",hoursDay,setHoursDay,1,24,1],
+          ["PUE (cooling overhead)","×",pue,setPue,1.0,2.0,0.05],
+        ].map(([label,unit,val,fn,mn,mx,step])=>(
+          <div key={label} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+            <div style={{width:175,fontSize:11,color:"var(--text2)",flexShrink:0}}>{label}</div>
+            <input type="range" min={mn} max={mx} step={step} value={val} onChange={e=>fn(Number(e.target.value))} style={{flex:1,accentColor:"var(--accent)"}}/>
+            <span style={{fontSize:12,fontWeight:700,color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace",minWidth:44,textAlign:"right"}}>{val}{unit}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Results */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8,marginBottom:14}}>
+        {[
+          ["GPU TDP",`${totalW} W`,"var(--amber)"],
+          ["Wall Power",`${Math.round(effectiveW)} W`,"var(--amber)"],
+          ["kWh / Month",`${kwhPerMonth.toFixed(0)} kWh`,"var(--text2)"],
+          ["Daily",`₹${Math.round(dailyINR).toLocaleString("en-IN")}`,"var(--text)"],
+          ["Monthly INR",`₹${Math.round(monthlyINR).toLocaleString("en-IN")}`,"var(--green)"],
+          ["Monthly USD",`$${monthlyUSD.toFixed(0)}`,"var(--accent2)"],
+          ["Annually INR",`₹${Math.round(annuallyINR).toLocaleString("en-IN")}`,"var(--red)"],
+          ["Annually USD",`$${annuallyUSD.toFixed(0)}`,"var(--red)"],
+        ].map(([l,v,c])=>(
+          <div key={l} style={{background:"rgba(255,255,255,0.03)",borderRadius:9,padding:"9px 11px",border:"1px solid var(--border2)"}}>
+            <div style={{fontSize:9,color:"var(--text3)",fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:3}}>{l}</div>
+            <div style={{fontSize:13,fontWeight:800,color:c,fontFamily:"'JetBrains Mono',monospace"}}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Formula box */}
+      <div style={{background:"rgba(110,80,255,0.06)",borderRadius:9,padding:"10px 13px",border:"1px solid rgba(110,80,255,0.18)"}}>
+        <div style={{fontSize:9,color:"var(--accent2)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:5}}>Formula</div>
+        <div style={{fontSize:10,color:"var(--text2)",lineHeight:1.9,fontFamily:"'JetBrains Mono',monospace"}}>
+          <div><span style={{color:"var(--text3)"}}>Wall power</span> = TDP_W × PUE = {totalW} × {pue} = <span style={{color:"var(--amber)",fontWeight:700}}>{Math.round(effectiveW)} W</span></div>
+          <div><span style={{color:"var(--text3)"}}>kWh/month</span> = (W ÷ 1000) × h/day × 30 = ({Math.round(effectiveW)} ÷ 1000) × {hoursDay} × 30 = <span style={{color:"var(--text)",fontWeight:700}}>{kwhPerMonth.toFixed(0)} kWh</span></div>
+          <div><span style={{color:"var(--text3)"}}>Monthly cost</span> = kWh × ₹/kWh = {kwhPerMonth.toFixed(0)} × ₹{rateINR} = <span style={{color:"var(--green)",fontWeight:700}}>₹{Math.round(monthlyINR).toLocaleString("en-IN")}</span></div>
+          <div style={{fontSize:9,color:"var(--text3)",marginTop:3}}>PUE (Power Usage Effectiveness) accounts for cooling, networking, and facility overhead. Typical: 1.1–1.5 for server rooms, 1.0 for consumer desktops.</div>
+        </div>
+      </div>
     </div>
   );
 }
 
 // ─── TCO CALCULATOR ───────────────────────────────────────────────────────────
-function TCOCalculator(){
+function TCOCalculator({selectedMap}){
   const [gpuPriceLakh,setGpuPriceLakh]=useState(16);
   const [serverHwLakh,setServerHwLakh]=useState(5);
   const [electricityRate,setElectricityRate]=useState(8);
@@ -1415,25 +1536,58 @@ function TCOCalculator(){
   const [currency,setCurrency]=useState("INR");
   const rate=_liveRate||83.5;
 
+  // Derive actual GPU TDP from selected build; fallback = 400 W (generic A100 placeholder)
+  const hwEntries=useMemo(()=>Object.entries(selectedMap||{}).map(([id,qty])=>{const h=ALL_HW.find(x=>x.id===id);return h?{h,qty}:null;}).filter(Boolean),[selectedMap]);
+  const actualGpuTdpW=hwEntries.length>0?hwEntries.reduce((a,{h,qty})=>a+h.tdp*qty,0):400;
+  const gpuLabel=hwEntries.length>0?hwEntries.map(({h,qty})=>`${h.shortName}×${qty}`).join(" + "):"Generic (400 W fallback)";
+  // Estimated throughput from selected hardware (tokens/sec for ~32B model equivalent)
+  const hwTps=hwEntries.length>0
+    ?hwEntries.reduce((a,{h,qty})=>a+(h.tokensPerSec?.llama70b||h.tokensPerSec?.llama8b||45)*qty,0)
+    :45;
+
   const L=100000;
   const capex=(gpuPriceLakh+serverHwLakh+1.5)*L;
-  const kwhPerMonth=(400/1000)*gpuHoursDay*30;
+  // Power: (TDP_W ÷ 1000) × h/day × 30 days × ₹/kWh
+  const kwhPerMonth=(actualGpuTdpW/1000)*gpuHoursDay*30;
   const electricityMonthly=kwhPerMonth*electricityRate;
   const monthlyOpex=electricityMonthly+itStaffCost;
   const monthlyDep=capex/(deprecYears*12);
   const monthlyTotal=monthlyOpex+monthlyDep;
   const costPerEmployee=monthlyTotal/200;
-  const reqPerMonth=(70/900)*3600*gpuHoursDay*30;
+  // Requests/month: tokens/sec × 3600 s/h × h/day × 30 days ÷ avg_tokens_per_request
+  const avgTokPerReq=900;
+  const reqPerMonth=(hwTps*3600*gpuHoursDay*30)/avgTokPerReq;
   const costPerRequest=monthlyTotal/Math.max(reqPerMonth,1);
   const threeYearTotal=capex+monthlyOpex*36;
-  const breakEvenMonths=Math.round(capex/Math.max(120000-monthlyOpex,1));
+
+  // Cloud on-demand pricing (2025, per GPU-hour in USD)
+  // Sources: AWS pricing page, GCP calculator, Azure pricing as of Q2 2025
+  const cloudHrs=gpuHoursDay*30;
+  const awsA100perHr=4.10;   // p4d.24xlarge ÷ 8 GPUs ($32.77/hr shared)
+  const awsA10GperHr=1.006;  // g5.xlarge — A10G 24 GB
+  const awsV100perHr=3.06;   // p3.2xlarge — V100 16 GB
+  const gcpA100perHr=3.673;  // a2-highgpu-1g — A100 40 GB
+  const gcpL4perHr=1.33;     // g2-standard-4 — L4 24 GB
+  const gcpT4perHr=0.95;     // n1-standard-8 + T4 16 GB
+  const azureA100perHr=3.673;// NC24ads_A100_v4 — A100 80 GB
+  const azureA10perHr=1.17;  // NV6ads_A10_v5 — A10 24 GB
+  const azureV100perHr=3.06; // NC6s_v3 — V100 16 GB
+  const togetherTokPerM=0.88;// Together AI Llama-3.3-70B $/M tokens (input+output avg)
+  const togetherMonthlyTokens=(hwTps*3600*gpuHoursDay*30)/1e6; // equivalent usage
+  const togetherMonthlyCostINR=togetherTokPerM*togetherMonthlyTokens*rate;
+  const e2eA100INR=Math.round(99.78*cloudHrs*rate); // E2E Networks A100 ₹99.78/hr reserved rate
+
+  // E2E break-even
+  const breakEvenMonths=Math.round(capex/Math.max(e2eA100INR-monthlyOpex,1));
+
+  const fmtINRK=v=>{const abs=Math.abs(v);if(abs>=1e7)return`₹${(v/1e7).toFixed(2)}Cr`;if(abs>=1e5)return`₹${(v/1e5).toFixed(1)}L`;if(abs>=1e3)return`₹${(v/1e3).toFixed(0)}K`;return`₹${Math.round(v)}`;};
+  const fmtL=v=>fmtINRK(v);
+  const fmtK=v=>fmtINRK(v);
+  const fmtUSDVal=v=>v>=1000?`$${Math.round(v/1000)}K`:`$${Math.round(v)}`;
+
   const depPct=Math.round(monthlyDep/monthlyTotal*100);
   const elecPct=Math.max(1,Math.round(electricityMonthly/monthlyTotal*100));
   const itPct=Math.max(1,Math.round(itStaffCost/monthlyTotal*100));
-
-  const fmtL=v=>v>=L?`₹${(v/L).toFixed(1)}L`:`₹${Math.round(v).toLocaleString("en-IN")}`;
-  const fmtK=v=>v>=1000?`₹${(v/1000).toFixed(0)}K`:`₹${Math.round(v)}`;
-  const fmtUSDVal=v=>v>=1000?`$${Math.round(v/1000)}K`:`$${Math.round(v)}`;
 
   const SRow=({label,value,setValue,min,max,step,type="other"})=>{
     let dispVal,altNote,unitLabel;
@@ -1484,8 +1638,16 @@ function TCOCalculator(){
           ))}
         </div>
       </div>
-      <div style={{fontSize:11,color:"var(--text3)",marginBottom:16}}>
+      <div style={{fontSize:11,color:"var(--text3)",marginBottom:8}}>
         Adjust inputs · showing <strong style={{color:"var(--accent2)"}}>{currency==="INR"?"Indian Rupees (₹)":"US Dollars ($)"}</strong> · live rate: <span style={{fontFamily:"'JetBrains Mono',monospace",color:"var(--green)"}}>₹{Math.round(rate)}/$</span> · type directly into any field.
+      </div>
+
+      {/* Hardware TDP auto-detected banner */}
+      <div style={{background:hwEntries.length>0?"rgba(0,229,160,0.07)":"rgba(255,184,48,0.07)",border:`1px solid ${hwEntries.length>0?"rgba(0,229,160,0.25)":"rgba(255,184,48,0.25)"}`,borderRadius:9,padding:"7px 12px",marginBottom:14,fontSize:11,color:"var(--text2)"}}>
+        {hwEntries.length>0
+          ?<>⚡ Using actual build TDP: <strong style={{color:"var(--green)"}}>{actualGpuTdpW} W</strong> from <span style={{color:"var(--accent2)"}}>{gpuLabel}</span></>
+          :<>⚠ No build selected — using <strong style={{color:"var(--amber)"}}>400 W</strong> placeholder. Add hardware in the Build tab for accurate power costs.</>
+        }
       </div>
 
       <div style={{background:"rgba(255,255,255,0.02)",borderRadius:10,padding:"14px 16px",marginBottom:16}}>
@@ -1497,8 +1659,9 @@ function TCOCalculator(){
         <SRow label="Depreciation" value={deprecYears} setValue={setDeprecYears} min={1} max={10} step={1} type="yrs"/>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:8,marginBottom:16}}>
-        {[["Capex (hardware)",fmtL(capex),"var(--accent2)"],["Monthly opex",fmtK(monthlyOpex),"var(--amber)"],["Cost/month (with dep.)",fmtL(monthlyTotal),"var(--text)"],["Cost per employee/mo",`₹${Math.round(costPerEmployee).toLocaleString("en-IN")}`,"var(--text2)"],["Cost per request",`₹${costPerRequest.toFixed(2)}`,"var(--green)"],["3-year total cost",fmtL(threeYearTotal),"var(--red)"]].map(([l,v,c])=>(
+      {/* Key output metrics */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(145px,1fr))",gap:8,marginBottom:12}}>
+        {[["Capex (hardware)",fmtL(capex),"var(--accent2)"],["Monthly opex",fmtK(monthlyOpex),"var(--amber)"],["Cost/month (w/ dep.)",fmtL(monthlyTotal),"var(--text)"],["Cost per employee/mo",`₹${Math.round(costPerEmployee).toLocaleString("en-IN")}`,"var(--text2)"],["Cost per request",`₹${costPerRequest.toFixed(2)}`,"var(--green)"],["3-year total",fmtL(threeYearTotal),"var(--red)"]].map(([l,v,c])=>(
           <div key={l} style={{background:"rgba(255,255,255,0.03)",border:"1px solid var(--border2)",borderRadius:9,padding:"10px 12px"}}>
             <div style={{fontSize:9,color:"var(--text3)",textTransform:"uppercase",fontWeight:700,letterSpacing:.4,marginBottom:4,lineHeight:1.3}}>{l}</div>
             <div style={{fontSize:15,fontWeight:800,color:c,fontFamily:"'JetBrains Mono',monospace"}}>{v}</div>
@@ -1506,19 +1669,85 @@ function TCOCalculator(){
         ))}
       </div>
 
-      <div style={{marginBottom:16}}>
-        <div style={{fontWeight:700,fontSize:12,color:"var(--text)",marginBottom:10}}>vs cloud alternatives (monthly)</div>
-        {[["Your on-prem A100 (above)",fmtL(monthlyTotal),"var(--green)",false],["E2E Networks A100 (India cloud)","₹85–120K/mo (12 hrs/day)","var(--amber)",false],["AWS p3.2xlarge (V100 equiv)","₹130–170K/mo","var(--red)",false],["Together AI API (Qwen 32B)","₹35–60K/mo (200 users, moderate usage)","var(--accent2)",false],["Break-even vs E2E cloud",`~${Math.min(breakEvenMonths,120)} months`,"var(--text3)",true]].map(([l,v,c,last])=>(
-          <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:last?"none":"1px solid var(--border2)",fontSize:11}}>
-            <span style={{color:"var(--text2)"}}>{l}</span>
-            <span style={{fontWeight:700,color:c,fontFamily:"'JetBrains Mono',monospace",fontSize:11}}>{v}</span>
-          </div>
-        ))}
+      {/* Formula box */}
+      <div style={{background:"rgba(110,80,255,0.06)",borderRadius:9,padding:"10px 13px",border:"1px solid rgba(110,80,255,0.18)",marginBottom:16}}>
+        <div style={{fontSize:9,color:"var(--accent2)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:5}}>Formulas</div>
+        <div style={{fontSize:10,color:"var(--text2)",lineHeight:1.85,fontFamily:"'JetBrains Mono',monospace"}}>
+          <div><span style={{color:"var(--text3)"}}>Capex</span> = (GPU + Server + 1.5 misc) × ₹1L = ({gpuPriceLakh} + {serverHwLakh} + 1.5) × ₹1L = <span style={{color:"var(--accent2)",fontWeight:700}}>{fmtL(capex)}</span></div>
+          <div><span style={{color:"var(--text3)"}}>kWh/month</span> = (TDP_W ÷ 1000) × h/day × 30 = ({actualGpuTdpW} ÷ 1000) × {gpuHoursDay} × 30 = <span style={{color:"var(--amber)",fontWeight:700}}>{kwhPerMonth.toFixed(0)} kWh</span></div>
+          <div><span style={{color:"var(--text3)"}}>Electricity/mo</span> = kWh × ₹/kWh = {kwhPerMonth.toFixed(0)} × ₹{electricityRate} = <span style={{color:"var(--amber)",fontWeight:700}}>{fmtK(electricityMonthly)}</span></div>
+          <div><span style={{color:"var(--text3)"}}>Monthly dep.</span> = Capex ÷ (dep_years × 12) = {fmtL(capex)} ÷ ({deprecYears} × 12) = <span style={{color:"var(--text)",fontWeight:700}}>{fmtK(monthlyDep)}</span></div>
+          <div><span style={{color:"var(--text3)"}}>Req/month</span> = TPS × 3600 × h/day × 30 ÷ avg_tok = {hwTps} × 3600 × {gpuHoursDay} × 30 ÷ {avgTokPerReq} = <span style={{color:"var(--green)",fontWeight:700}}>{Math.round(reqPerMonth).toLocaleString()}</span></div>
+          <div><span style={{color:"var(--text3)"}}>Cost/request</span> = monthly_total ÷ req/month = {fmtL(monthlyTotal)} ÷ {Math.round(reqPerMonth).toLocaleString()} = <span style={{color:"var(--green)",fontWeight:700}}>₹{costPerRequest.toFixed(3)}</span></div>
+        </div>
       </div>
 
+      {/* Cloud comparison — dynamic, real 2025 pricing */}
+      <div style={{marginBottom:16}}>
+        <div style={{fontWeight:700,fontSize:12,color:"var(--text)",marginBottom:4}}>vs Cloud Alternatives — monthly at {gpuHoursDay}h/day</div>
+        <div style={{fontSize:10,color:"var(--text3)",marginBottom:10}}>Prices: AWS/GCP/Azure on-demand 2025 · E2E Networks India reserved rate · scaled to {gpuHoursDay}h/day × 30 days.</div>
+
+        {/* Table header */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"0 10px",padding:"5px 8px",borderBottom:"1px solid var(--border)",marginBottom:4}}>
+          {["Provider / Instance","Monthly (INR)","vs On-Prem"].map((h,i)=>(
+            <div key={h} style={{fontSize:9,color:"var(--text3)",fontWeight:700,textTransform:"uppercase",letterSpacing:.4,textAlign:i===0?"left":"right"}}>{h}</div>
+          ))}
+        </div>
+
+        {[
+          // [label, usd/hr, tier-color, note]
+          {label:"Your On-Prem (above)",monthly:monthlyTotal,color:"var(--green)",note:`${actualGpuTdpW}W build · ${gpuHoursDay}h/day · ₹${electricityRate}/kWh`,isOnprem:true},
+          {label:"E2E Networks — A100 80GB (India)",monthly:e2eA100INR,color:"var(--amber)",note:`₹99.78/hr reserved · ${cloudHrs}h`},
+          {label:"AWS p4d — A100 80GB SXM (÷8 GPU)",monthly:Math.round(awsA100perHr*cloudHrs*rate),color:"var(--red)",note:`$${awsA100perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"AWS g5 — A10G 24GB",monthly:Math.round(awsA10GperHr*cloudHrs*rate),color:"var(--red)",note:`$${awsA10GperHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"AWS p3 — V100 16GB",monthly:Math.round(awsV100perHr*cloudHrs*rate),color:"var(--red)",note:`$${awsV100perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"GCP a2-highgpu — A100 40GB",monthly:Math.round(gcpA100perHr*cloudHrs*rate),color:"#60a5fa",note:`$${gcpA100perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"GCP g2 — L4 24GB",monthly:Math.round(gcpL4perHr*cloudHrs*rate),color:"#60a5fa",note:`$${gcpL4perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"GCP n1 + T4 16GB",monthly:Math.round(gcpT4perHr*cloudHrs*rate),color:"#60a5fa",note:`$${gcpT4perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"Azure NC24ads — A100 80GB",monthly:Math.round(azureA100perHr*cloudHrs*rate),color:"#818cf8",note:`$${azureA100perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"Azure NV6ads — A10 24GB",monthly:Math.round(azureA10perHr*cloudHrs*rate),color:"#818cf8",note:`$${azureA10perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"Azure NC6s_v3 — V100 16GB",monthly:Math.round(azureV100perHr*cloudHrs*rate),color:"#818cf8",note:`$${azureV100perHr}/hr on-demand · ${cloudHrs}h`},
+          {label:"Together AI — Llama 3.3 70B API",monthly:Math.round(togetherMonthlyCostINR),color:"var(--accent2)",note:`$${togetherTokPerM}/M tokens · equiv. usage`},
+        ].map(({label,monthly,color,note,isOnprem},idx,arr)=>{
+          const ratio=monthly/Math.max(monthlyTotal,1);
+          const cheaper=!isOnprem&&monthly<monthlyTotal;
+          const moreExpensive=!isOnprem&&monthly>monthlyTotal;
+          const pctDiff=Math.abs(Math.round((ratio-1)*100));
+          return(
+            <div key={label} style={{padding:"8px 8px",borderBottom:idx<arr.length-1?"1px solid rgba(255,255,255,0.04)":"none",background:isOnprem?"rgba(0,229,160,0.04)":"transparent",borderRadius:isOnprem?7:0}}>
+              <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"0 10px",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:11,color:isOnprem?"var(--green)":"var(--text)",fontWeight:isOnprem?700:500}}>{label}</div>
+                  <div style={{fontSize:9,color:"var(--text3)",marginTop:1}}>{note}</div>
+                </div>
+                <div style={{textAlign:"right",fontWeight:700,color,fontFamily:"'JetBrains Mono',monospace",fontSize:11,whiteSpace:"nowrap"}}>{fmtINRK(monthly)}</div>
+                <div style={{textAlign:"right",minWidth:72}}>
+                  {isOnprem
+                    ?<span style={{fontSize:10,color:"var(--green)",fontWeight:700,background:"rgba(0,229,160,0.12)",padding:"2px 7px",borderRadius:4}}>Baseline</span>
+                    :<span style={{fontSize:10,fontWeight:700,color:cheaper?"var(--green)":moreExpensive?"var(--red)":"var(--text3)",background:cheaper?"rgba(0,229,160,0.1)":moreExpensive?"rgba(255,75,110,0.1)":"transparent",padding:"2px 7px",borderRadius:4}}>
+                      {cheaper?`${pctDiff}% cheaper`:moreExpensive?`${pctDiff}% costlier`:"≈ same"}
+                    </span>
+                  }
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{marginTop:10,display:"flex",gap:8,flexWrap:"wrap",fontSize:10,color:"var(--text3)"}}>
+          <div style={{padding:"4px 9px",borderRadius:5,background:"rgba(255,75,110,0.1)",border:"1px solid rgba(255,75,110,0.2)"}}>Break-even vs E2E Networks: <strong style={{color:"var(--amber)"}}>{Math.min(breakEvenMonths,240)} months</strong></div>
+          <div style={{padding:"4px 9px",borderRadius:5,background:"rgba(22,163,74,0.08)",border:"1px solid rgba(22,163,74,0.2)"}}>No per-token API cost = biggest long-term advantage at scale</div>
+        </div>
+
+        <div style={{marginTop:8,padding:"8px 10px",background:"rgba(255,255,255,0.02)",borderRadius:7,border:"1px solid var(--border2)",fontSize:9,color:"var(--text3)",lineHeight:1.6}}>
+          Cloud prices: AWS on-demand Q2 2025 · GCP on-demand Q2 2025 · Azure on-demand Q2 2025 · E2E Networks reserved rate ₹99.78/hr · Together AI $0.88/M tokens · Spot/reserved instances 40–70% cheaper. Always verify current rates before budgeting.
+        </div>
+      </div>
+
+      {/* Per-request cost breakdown */}
       <div>
         <div style={{fontWeight:700,fontSize:12,color:"var(--text)",marginBottom:4}}>Per-request cost breakdown</div>
-        <div style={{fontSize:10,color:"var(--text3)",marginBottom:10}}>Assuming avg 900 tokens/request (500 prompt + 400 response)</div>
+        <div style={{fontSize:10,color:"var(--text3)",marginBottom:10}}>Avg {avgTokPerReq} tokens/request · {Math.round(reqPerMonth).toLocaleString()} req/month at {hwTps} t/s</div>
         {[["Hardware depreciation",depPct,"#2563EB"],["Electricity",elecPct,"#16A34A"],["IT staff allocation",itPct,"#F59E0B"]].map(([l,p,c])=>(
           <div key={l} style={{marginBottom:10}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
@@ -1531,7 +1760,7 @@ function TCOCalculator(){
           </div>
         ))}
         <div style={{fontSize:10,color:"var(--text3)",marginTop:8,padding:"8px 10px",background:"rgba(22,163,74,0.08)",border:"1px solid rgba(22,163,74,0.2)",borderRadius:7}}>
-          Note: no per-token API fees — this is your biggest cost advantage over cloud APIs at scale.
+          No per-token API fees — this is your biggest cost advantage over cloud APIs at scale.
         </div>
       </div>
     </div>
@@ -2264,33 +2493,10 @@ export default function App(){
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:20}}>
               <KVCacheCalc model={selectedModel} buildVram={totalVram}/>
               <VramCalc selectedMap={selectedMap}/>
-              {/* Power Calculator */}
-              <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"18px 20px"}}>
-                <div style={{fontWeight:700,fontSize:14,marginBottom:14,color:"var(--text)"}}>⚡ Power Cost Calculator</div>
-                {Object.keys(selectedMap).length===0?<div style={{color:"var(--text3)",fontSize:12}}>Add hardware to your build to estimate power costs.</div>:(()=>{
-                  const entries=Object.entries(selectedMap).map(([id,qty])=>{const h=ALL_HW.find(x=>x.id===id);return h?{h,qty}:null;}).filter(Boolean);
-                  const totalW=entries.reduce((a,{h,qty})=>a+h.tdp*qty,0);
-                  const daily24=totalW/1000*24*.12;
-                  const monthly=daily24*30;
-                  const annually=daily24*365;
-                  return(
-                    <div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                        {[["Total TDP",fmtW(totalW),"var(--amber)"],["Daily (24h)","$"+daily24.toFixed(2),"var(--text2)"],["Monthly","$"+monthly.toFixed(2),"var(--amber)"],["Annually","$"+annually.toFixed(2),"var(--red)"],["Monthly INR",fmtINR(monthly),"var(--green)"],["Annually INR",fmtINR(annually),"var(--red)"]].map(([l,v,c])=>(
-                          <div key={l} style={{background:"rgba(255,255,255,0.03)",borderRadius:9,padding:"9px 11px",border:"1px solid var(--border2)"}}>
-                            <div style={{fontSize:9,color:"var(--text3)",fontWeight:700,textTransform:"uppercase",letterSpacing:.4,marginBottom:3}}>{l}</div>
-                            <div style={{fontSize:14,fontWeight:800,color:c,fontFamily:"'JetBrains Mono', monospace"}}>{v}</div>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{fontSize:9,color:"var(--text3)",marginTop:10}}>Assumes $0.12/kWh. Adjust for your region.</div>
-                    </div>
-                  );
-                })()}
-              </div>
+              <PowerCostCalc selectedMap={selectedMap}/>
             </div>
             <ConcurrentSimulator selectedMap={selectedMap} selectedModel={selectedModel}/>
-            <TCOCalculator/>
+            <TCOCalculator selectedMap={selectedMap}/>
           </div>
         )}
 
