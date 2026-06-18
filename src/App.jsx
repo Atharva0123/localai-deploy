@@ -404,7 +404,7 @@ function buildOllamaScript(p){
 # Quant    : ${p.quantFormat}  |  Context: ${p.contextSize} tokens
 # Generated: LocalAI Deploy (template substitution, no AI)
 # ============================================================
-set -e
+set -euo pipefail
 
 # ── Variables ────────────────────────────────────────────────
 MODEL="${p.ollamaTag}"
@@ -413,6 +413,9 @@ TOTAL_REQUESTS=${p.totalRequests}
 CONTEXT_SIZE=${p.contextSize}
 HOST="http://localhost:11434"
 RESULTS_FILE="results_ollama_${p.modelId}.txt"
+JSON_FILE="results_ollama_${p.modelId}.json"
+GPU_LOG="gpu_metrics_${p.modelId}.log"
+ERROR_THRESHOLD=5   # exit 1 if failure rate exceeds this %
 
 PROMPT="Explain the architecture of transformer models and how attention mechanisms work in detail."
 # Approx ${p.concurrency * p.contextSize} tokens of combined KV footprint at peak concurrency
@@ -437,68 +440,109 @@ OLLAMA_NUM_PARALLEL=$CONCURRENCY \\
 SERVER_PID=$!
 sleep 6
 
-# Warmup
+# ── GPU monitoring ───────────────────────────────────────────
+GPU_MON_PID=""
+if command -v nvidia-smi &>/dev/null; then
+  nvidia-smi dmon -s u -d 1 > "$GPU_LOG" &
+  GPU_MON_PID=$!
+  echo "GPU utilization monitoring started -> $GPU_LOG"
+fi
+
+# ── Warmup (excluded from timing — loads model into VRAM) ────
+echo "Warming up (loading model weights into VRAM)..."
 curl -sf -X POST $HOST/api/generate \\
   -H 'Content-Type: application/json' \\
   -d '{"model":"'$MODEL'","prompt":"ping","stream":false}' >/dev/null
-echo "Warmup done."
+echo "Warmup complete. Starting timed load test..."
 
 # ── Load test ────────────────────────────────────────────────
 echo "[4/4] Running $TOTAL_REQUESTS requests at $CONCURRENCY concurrency..."
-echo "Results: $RESULTS_FILE"
 > "$RESULTS_FILE"
 
 run_request(){
   local idx=$1
   local t0; t0=$(date +%s%3N)
-  local resp; resp=$(curl -sf -X POST $HOST/api/generate \\
+  local http_code body resp
+  resp=$(curl -s -w "\\n__HTTP__:%{http_code}" -X POST $HOST/api/generate \\
     -H 'Content-Type: application/json' \\
     -d '{"model":"'$MODEL'","prompt":"'"$PROMPT"'","options":{"num_ctx":'$CONTEXT_SIZE'},"stream":false}')
   local t1; t1=$(date +%s%3N)
+  http_code=$(printf '%s' "$resp" | grep "__HTTP__:" | cut -d: -f2)
+  body=$(printf '%s' "$resp" | grep -v "__HTTP__:")
   local elapsed=$(( t1 - t0 ))
-  local eval_count; eval_count=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_count',0))" 2>/dev/null || echo 0)
-  local eval_ns; eval_ns=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_duration',1))" 2>/dev/null || echo 1)
-  local tps; tps=$(python3 -c "print(round($eval_count / max($eval_ns * 1e-9, 0.001), 2))" 2>/dev/null || echo 0)
-  echo "req=$idx latency=\${elapsed}ms tokens=$eval_count tps=$tps" | tee -a "$RESULTS_FILE"
+  if [ "$http_code" != "200" ]; then
+    echo "req=$idx status=ERROR http=$http_code latency=\${elapsed}ms" | tee -a "$RESULTS_FILE"
+    return
+  fi
+  local eval_count eval_ns tps
+  eval_count=$(printf '%s' "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_count',0))" 2>/dev/null || echo 0)
+  eval_ns=$(printf '%s' "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_duration',1))" 2>/dev/null || echo 1)
+  tps=$(python3 -c "print(round($eval_count / max($eval_ns * 1e-9, 0.001), 2))" 2>/dev/null || echo 0)
+  echo "req=$idx status=OK latency=\${elapsed}ms tokens=$eval_count tps=$tps" | tee -a "$RESULTS_FILE"
 }
 
 export -f run_request
 export MODEL HOST PROMPT CONTEXT_SIZE RESULTS_FILE
 
-# Use GNU parallel if available, otherwise sequential
 if command -v parallel &>/dev/null; then
   seq 1 $TOTAL_REQUESTS | parallel -j $CONCURRENCY run_request
 else
   for i in $(seq 1 $TOTAL_REQUESTS); do run_request $i; done
 fi
 
-# ── Summary ──────────────────────────────────────────────────
+# ── Stop GPU monitor ─────────────────────────────────────────
+[ -n "$GPU_MON_PID" ] && kill "$GPU_MON_PID" 2>/dev/null || true
+
+# ── Summary + JSON output + error rate check ─────────────────
 echo ""
-echo "=== Summary ==="
-python3 - "$RESULTS_FILE" <<'PYEOF'
-import sys, re, statistics
-latencies, tps_list = [], []
-for line in open(sys.argv[1]):
+python3 - "$RESULTS_FILE" "$JSON_FILE" "$ERROR_THRESHOLD" <<'PYEOF'
+import sys, re, json, statistics
+results_path, json_path, threshold = sys.argv[1], sys.argv[2], int(sys.argv[3])
+ok_lat, tps_list, errors = [], [], 0
+for line in open(results_path):
+    if 'status=ERROR' in line:
+        errors += 1
+        continue
     m = re.search(r'latency=(\\d+)ms.*tps=([\\d.]+)', line)
     if m:
-        latencies.append(int(m.group(1)))
+        ok_lat.append(int(m.group(1)))
         tps_list.append(float(m.group(2)))
-if latencies:
-    print(f"Requests     : {len(latencies)}")
-    print(f"Avg latency  : {statistics.mean(latencies):.0f} ms")
-    print(f"p50 latency  : {statistics.median(latencies):.0f} ms")
-    print(f"p95 latency  : {sorted(latencies)[int(len(latencies)*0.95)]:.0f} ms")
-    print(f"Avg TPS/req  : {statistics.mean(tps_list):.1f} t/s")
-    print(f"Total TPS    : {sum(tps_list):.1f} t/s (across all concurrent slots)")
+total = len(ok_lat) + errors
+err_pct = (errors / max(total, 1)) * 100
+lats = sorted(ok_lat)
+summary = {
+    "model": "${p.ollamaTag}",
+    "hardware": "${p.gpuName} x${p.gpuCount}",
+    "quant": "${p.quantFormat}",
+    "concurrency": ${p.concurrency},
+    "total_requests": total,
+    "ok": len(ok_lat),
+    "errors": errors,
+    "error_rate_pct": round(err_pct, 2),
+    "latency_avg_ms": round(statistics.mean(lats), 1) if lats else None,
+    "latency_p50_ms": lats[len(lats)//2] if lats else None,
+    "latency_p95_ms": lats[int(len(lats)*0.95)] if lats else None,
+    "latency_p99_ms": lats[int(len(lats)*0.99)] if lats else None,
+    "avg_tps_per_slot": round(statistics.mean(tps_list), 2) if tps_list else None,
+    "total_tps": round(sum(tps_list), 2) if tps_list else None,
+}
+with open(json_path, "w") as f:
+    json.dump(summary, f, indent=2)
+print("=== Summary ===")
+for k, v in summary.items():
+    print(f"  {k:<22}: {v}")
+print(f"\\nJSON results -> {json_path}")
+if err_pct > threshold:
+    print(f"\\nFAIL: error rate {err_pct:.1f}% exceeds {threshold}% threshold")
+    sys.exit(1)
 PYEOF
 
 kill $SERVER_PID 2>/dev/null || true
-echo "Done. Results saved to $RESULTS_FILE"
+echo "Done."
 `;
 }
 
 function buildLlamaCppScript(p){
-  // Estimate GPU layers: assume ~1 MB per layer per B of params at Q4_K_M; cap at total layers
   const mbPerLayer=Math.round(p.paramsBillion*0.8);
   const gpuLayers=Math.min(Math.floor((p.vramGb*1024*0.85)/Math.max(mbPerLayer,1)),200);
   return`#!/bin/bash
@@ -508,23 +552,27 @@ function buildLlamaCppScript(p){
 # Quant    : ${p.quantFormat}  |  GPU layers: ${gpuLayers}  |  Context: ${p.contextSize}
 # Generated: LocalAI Deploy (template substitution, no AI)
 # ============================================================
-set -e
+set -euo pipefail
 
 # ── Variables ────────────────────────────────────────────────
-HF_MODEL="${p.hfModelId}"        # HuggingFace repo to download GGUF from
+HF_MODEL="${p.hfModelId}"
 QUANT="${p.quantFormat}"
 MODEL_FILE="${p.modelId}-${p.quantFormat}.gguf"
-GPU_LAYERS=${gpuLayers}          # layers to offload to GPU
+GPU_LAYERS=${gpuLayers}
 CTX_SIZE=${p.contextSize}
-PARALLEL=${p.concurrency}        # parallel decode slots
+PARALLEL=${p.concurrency}
+SEED=42                          # fixed seed for reproducible outputs
 PORT=8080
 TOTAL_REQUESTS=${p.totalRequests}
 CONCURRENCY=${p.concurrency}
 RESULTS_FILE="results_llamacpp_${p.modelId}.txt"
+JSON_FILE="results_llamacpp_${p.modelId}.json"
+GPU_LOG="gpu_metrics_${p.modelId}.log"
+ERROR_THRESHOLD=5
 
 # ── Install dependencies ──────────────────────────────────────
 echo "[1/5] Installing build tools..."
-sudo apt-get update -qq && sudo apt-get install -y -qq build-essential cmake git curl
+sudo apt-get update -qq && sudo apt-get install -y -qq build-essential cmake git curl python3-pip
 
 # ── Clone & build llama.cpp ───────────────────────────────────
 echo "[2/5] Building llama.cpp with CUDA support..."
@@ -543,18 +591,15 @@ if [ ! -f "$MODEL_FILE" ]; then
   pip install huggingface_hub -q
   python3 -c "
 from huggingface_hub import hf_hub_download, list_repo_files
-import os, re
+import shutil
 repo='$HF_MODEL'
 files=list(list_repo_files(repo))
 gguf=[f for f in files if '$QUANT' in f.upper() and f.endswith('.gguf')]
-if not gguf:
-    gguf=[f for f in files if 'Q4_K_M' in f.upper() and f.endswith('.gguf')]
-if not gguf:
-    gguf=[f for f in files if f.endswith('.gguf')][:1]
-f=gguf[0]
-print(f'Downloading {f}')
+if not gguf: gguf=[f for f in files if 'Q4_K_M' in f.upper() and f.endswith('.gguf')]
+if not gguf: gguf=[f for f in files if f.endswith('.gguf')][:1]
+f=gguf[0]; print(f'Downloading {f}')
 hf_hub_download(repo_id=repo, filename=f, local_dir='.')
-import shutil; shutil.move(f, '$MODEL_FILE') if f!='$MODEL_FILE' else None
+shutil.move(f, '$MODEL_FILE') if f!='$MODEL_FILE' else None
 "
 fi
 
@@ -566,27 +611,102 @@ pkill -f llama-server 2>/dev/null || true
   --n-gpu-layers $GPU_LAYERS \\
   --ctx-size $CTX_SIZE \\
   --parallel $PARALLEL \\
+  --seed $SEED \\
   --port $PORT \\
   --host 0.0.0.0 &
 SERVER_PID=$!
-sleep 10
 
-# Warmup
-curl -sf http://localhost:$PORT/health >/dev/null && echo "Server healthy."
+echo "Waiting for server..."
+until curl -sf http://localhost:$PORT/health >/dev/null 2>&1; do sleep 2; echo -n "."; done
+echo " Ready."
 
-# ── Load test with Apache Bench ───────────────────────────────
-echo "[5/5] Running load test ($TOTAL_REQUESTS reqs, $CONCURRENCY concurrent)..."
-PAYLOAD='{"prompt":"Explain how neural networks learn through backpropagation and gradient descent. Include examples.","n_predict":256}'
-echo "$PAYLOAD" > /tmp/llama_payload.json
+# ── GPU monitoring ───────────────────────────────────────────
+GPU_MON_PID=""
+if command -v nvidia-smi &>/dev/null; then
+  nvidia-smi dmon -s u -d 1 > "$GPU_LOG" &
+  GPU_MON_PID=$!
+  echo "GPU utilization monitoring started -> $GPU_LOG"
+fi
 
-ab -n $TOTAL_REQUESTS -c $CONCURRENCY \\
-   -T 'application/json' \\
-   -p /tmp/llama_payload.json \\
-   -s 120 \\
-   http://localhost:$PORT/completion | tee "$RESULTS_FILE"
+# ── Warmup (excluded from timing — loads weights into VRAM) ──
+echo "Warming up (first request loads model into VRAM)..."
+curl -sf -X POST http://localhost:$PORT/completion \\
+  -H 'Content-Type: application/json' \\
+  -d '{"prompt":"ping","n_predict":1,"seed":'$SEED'}' >/dev/null
+echo "Warmup complete. Starting timed load test..."
+
+# ── Load test ────────────────────────────────────────────────
+echo "[5/5] Running $TOTAL_REQUESTS requests at $CONCURRENCY concurrency..."
+> "$RESULTS_FILE"
+
+run_request(){
+  local idx=$1
+  local t0; t0=$(date +%s%3N)
+  local http_code body resp
+  resp=$(curl -s -w "\\n__HTTP__:%{http_code}" -X POST http://localhost:$PORT/completion \\
+    -H 'Content-Type: application/json' \\
+    -d '{"prompt":"Explain how neural networks learn through backpropagation. Include examples.","n_predict":256,"seed":'$SEED'}')
+  local t1; t1=$(date +%s%3N)
+  http_code=$(printf '%s' "$resp" | grep "__HTTP__:" | cut -d: -f2)
+  body=$(printf '%s' "$resp" | grep -v "__HTTP__:")
+  local elapsed=$(( t1 - t0 ))
+  if [ "$http_code" != "200" ]; then
+    echo "req=$idx status=ERROR http=$http_code latency=\${elapsed}ms" | tee -a "$RESULTS_FILE"
+    return
+  fi
+  local tokens tps
+  tokens=$(printf '%s' "$body" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('tokens_predicted',0))" 2>/dev/null || echo 0)
+  tps=$(python3 -c "print(round($tokens / max($elapsed/1000, 0.001), 2))" 2>/dev/null || echo 0)
+  echo "req=$idx status=OK latency=\${elapsed}ms tokens=$tokens tps=$tps" | tee -a "$RESULTS_FILE"
+}
+export -f run_request
+export SEED RESULTS_FILE
+
+if command -v parallel &>/dev/null; then
+  seq 1 $TOTAL_REQUESTS | parallel -j $CONCURRENCY run_request
+else
+  for i in $(seq 1 $TOTAL_REQUESTS); do run_request $i; done
+fi
+
+[ -n "$GPU_MON_PID" ] && kill "$GPU_MON_PID" 2>/dev/null || true
+
+# ── Summary + JSON output + error rate check ─────────────────
+python3 - "$RESULTS_FILE" "$JSON_FILE" "$ERROR_THRESHOLD" <<'PYEOF'
+import sys, re, json, statistics
+results_path, json_path, threshold = sys.argv[1], sys.argv[2], int(sys.argv[3])
+ok_lat, tps_list, errors = [], [], 0
+for line in open(results_path):
+    if 'status=ERROR' in line:
+        errors += 1; continue
+    m = re.search(r'latency=(\\d+)ms.*tps=([\\d.]+)', line)
+    if m:
+        ok_lat.append(int(m.group(1))); tps_list.append(float(m.group(2)))
+total = len(ok_lat) + errors
+err_pct = (errors / max(total, 1)) * 100
+lats = sorted(ok_lat)
+summary = {
+    "model": "${p.modelName}", "hardware": "${p.gpuName} x${p.gpuCount}",
+    "quant": "${p.quantFormat}", "seed": 42, "concurrency": ${p.concurrency},
+    "total_requests": total, "ok": len(ok_lat), "errors": errors,
+    "error_rate_pct": round(err_pct, 2),
+    "latency_avg_ms": round(statistics.mean(lats), 1) if lats else None,
+    "latency_p50_ms": lats[len(lats)//2] if lats else None,
+    "latency_p95_ms": lats[int(len(lats)*0.95)] if lats else None,
+    "latency_p99_ms": lats[int(len(lats)*0.99)] if lats else None,
+    "avg_tps_per_slot": round(statistics.mean(tps_list), 2) if tps_list else None,
+    "total_tps": round(sum(tps_list), 2) if tps_list else None,
+}
+with open(json_path, "w") as f: json.dump(summary, f, indent=2)
+print("=== Summary ===")
+for k, v in summary.items(): print(f"  {k:<22}: {v}")
+print(f"\\nJSON results -> {json_path}")
+if err_pct > threshold:
+    print(f"\\nFAIL: error rate {err_pct:.1f}% exceeds {threshold}% threshold")
+    sys.exit(1)
+PYEOF
 
 kill $SERVER_PID 2>/dev/null || true
-echo "Results saved to $RESULTS_FILE"
+echo "Done."
 `;
 }
 
@@ -598,16 +718,20 @@ function buildVllmScript(p){
 # Tensor parallel: ${p.gpuCount}  |  Context: ${p.contextSize}
 # Generated: LocalAI Deploy (template substitution, no AI)
 # ============================================================
-set -e
+set -euo pipefail
 
 # ── Variables ────────────────────────────────────────────────
 HF_MODEL="${p.hfModelId}"
 TENSOR_PARALLEL=${p.gpuCount}
 MAX_MODEL_LEN=${p.contextSize}
+SEED=42                          # fixed seed for reproducible outputs
 PORT=8000
 CONCURRENCY=${p.concurrency}
 TOTAL_REQUESTS=${p.totalRequests}
-RESULTS_FILE="results_vllm_${p.modelId}.txt"
+RESULTS_FILE="results_vllm_${p.modelId}"
+JSON_FILE="results_vllm_${p.modelId}.json"
+GPU_LOG="gpu_metrics_${p.modelId}.log"
+ERROR_THRESHOLD=5
 
 # ── Install vLLM ─────────────────────────────────────────────
 echo "[1/4] Installing vLLM + locust..."
@@ -625,6 +749,7 @@ python3 -m vllm.entrypoints.openai.api_server \\
   --tensor-parallel-size $TENSOR_PARALLEL \\
   --max-model-len $MAX_MODEL_LEN \\
   --gpu-memory-utilization 0.90 \\
+  --seed $SEED \\
   --port $PORT \\
   --host 0.0.0.0 \\
   --served-model-name "${p.modelId}" &
@@ -633,6 +758,21 @@ SERVER_PID=$!
 echo "Waiting for server to be ready..."
 until curl -sf http://localhost:$PORT/health >/dev/null 2>&1; do sleep 5; echo -n "."; done
 echo " Ready!"
+
+# ── GPU monitoring ───────────────────────────────────────────
+GPU_MON_PID=""
+if command -v nvidia-smi &>/dev/null; then
+  nvidia-smi dmon -s u -d 1 > "$GPU_LOG" &
+  GPU_MON_PID=$!
+  echo "GPU utilization monitoring started -> $GPU_LOG"
+fi
+
+# ── Warmup (excluded from timing — loads model into VRAM) ────
+echo "Warming up (first request loads model weights into VRAM)..."
+curl -sf -X POST http://localhost:$PORT/v1/chat/completions \\
+  -H 'Content-Type: application/json' \\
+  -d '{"model":"${p.modelId}","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' >/dev/null
+echo "Warmup complete. Starting timed load test..."
 
 # ── Write locust file ─────────────────────────────────────────
 echo "[3/4] Creating locust test file..."
@@ -658,6 +798,7 @@ class LLMUser(HttpUser):
             "messages": [{"role": "user", "content": random.choice(PROMPTS)}],
             "max_tokens": 256,
             "temperature": 0.7,
+            "seed": 42,
             "stream": False,
         }
         with self.client.post(
@@ -685,10 +826,47 @@ locust \\
   --spawn-rate $CONCURRENCY \\
   --run-time 60s \\
   --csv "$RESULTS_FILE" \\
-  --html results_vllm_${p.modelId}.html
+  --html "${RESULTS_FILE}.html"
 
-echo "Done. CSV: ${p.modelId}_stats.csv  |  HTML report: results_vllm_${p.modelId}.html"
+[ -n "$GPU_MON_PID" ] && kill "$GPU_MON_PID" 2>/dev/null || true
+
+# ── Parse locust CSV → JSON output + error rate check ────────
+python3 - "${RESULTS_FILE}_stats.csv" "$JSON_FILE" "$ERROR_THRESHOLD" <<'PYEOF'
+import sys, csv, json
+csv_path, json_path, threshold = sys.argv[1], sys.argv[2], int(sys.argv[3])
+row = {}
+try:
+    with open(csv_path) as f:
+        for r in csv.DictReader(f):
+            if r.get("Name","") == "Aggregated":
+                row = r; break
+except FileNotFoundError:
+    print(f"Warning: {csv_path} not found — locust may have failed"); sys.exit(1)
+total = int(row.get("Request Count", 0))
+errors = int(row.get("Failure Count", 0))
+err_pct = (errors / max(total, 1)) * 100
+summary = {
+    "model": "${p.modelName}", "hardware": "${p.gpuName} x${p.gpuCount}",
+    "seed": 42, "concurrency": ${p.concurrency},
+    "total_requests": total, "errors": errors,
+    "error_rate_pct": round(err_pct, 2),
+    "latency_avg_ms": float(row.get("Average Response Time", 0) or 0),
+    "latency_p50_ms": float(row.get("50%", 0) or 0),
+    "latency_p95_ms": float(row.get("95%", 0) or 0),
+    "latency_p99_ms": float(row.get("99%", 0) or 0),
+    "req_per_sec": float(row.get("Requests/s", 0) or 0),
+}
+with open(json_path, "w") as f: json.dump(summary, f, indent=2)
+print("=== Summary ===")
+for k, v in summary.items(): print(f"  {k:<22}: {v}")
+print(f"\\nJSON results -> {json_path}")
+if err_pct > threshold:
+    print(f"\\nFAIL: error rate {err_pct:.1f}% exceeds {threshold}% threshold")
+    sys.exit(1)
+PYEOF
+
 kill $SERVER_PID 2>/dev/null || true
+echo "Done."
 `;
 }
 
@@ -705,17 +883,21 @@ Works against:
   vLLM    → BASE_URL = "http://localhost:8000"   BACKEND = "vllm"
   llama.cpp → BASE_URL = "http://localhost:8080" BACKEND = "llamacpp"
 """
-import asyncio, aiohttp, time, json, statistics, argparse, sys
+import asyncio, aiohttp, time, json, statistics, sys, subprocess, shutil
 
 # ── Config (pre-filled from your build) ──────────────────────
-BASE_URL      = "http://localhost:11434"   # change to 8000 for vLLM, 8080 for llama.cpp
-BACKEND       = "ollama"                   # "ollama" | "vllm" | "llamacpp"
-MODEL         = "${p.ollamaTag}"           # ollama tag, or HF model ID for vLLM
-CONCURRENCY   = ${p.concurrency}           # concurrent workers
-TOTAL         = ${p.totalRequests}         # total requests to send
-MAX_TOKENS    = 256                        # max tokens per response
-CONTEXT_SIZE  = ${p.contextSize}           # context window
-TIMEOUT_S     = 180                        # per-request timeout
+BASE_URL        = "http://localhost:11434"   # change to 8000 for vLLM, 8080 for llama.cpp
+BACKEND         = "ollama"                   # "ollama" | "vllm" | "llamacpp"
+MODEL           = "${p.ollamaTag}"           # ollama tag, or HF model ID for vLLM
+CONCURRENCY     = ${p.concurrency}           # concurrent workers
+TOTAL           = ${p.totalRequests}         # total requests to send
+MAX_TOKENS      = 256                        # max tokens per response
+CONTEXT_SIZE    = ${p.contextSize}           # context window
+TIMEOUT_S       = 180                        # per-request timeout
+SEED            = 42                         # fixed seed for reproducible outputs
+ERROR_THRESHOLD = 5                          # exit 1 if failure rate > this %
+JSON_FILE       = "results_python_${p.modelId}.json"
+GPU_LOG         = "gpu_metrics_${p.modelId}.log"
 
 PROMPTS = [
     "Explain the differences between CNN, RNN, and Transformer architectures.",
@@ -743,6 +925,7 @@ def build_request(prompt: str, idx: int) -> tuple[str, dict]:
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": MAX_TOKENS,
             "temperature": 0.7,
+            "seed": SEED,
             "stream": False,
         }
     else:  # llama.cpp
@@ -750,6 +933,7 @@ def build_request(prompt: str, idx: int) -> tuple[str, dict]:
             "prompt": prompt,
             "n_predict": MAX_TOKENS,
             "temperature": 0.7,
+            "seed": SEED,
         }
 
 # ── Extract token count from response ─────────────────────────
@@ -802,33 +986,77 @@ async def run_load_test():
 
     ok   = [r for r in results if r.get("ok")]
     fail = [r for r in results if not r.get("ok")]
-    if ok:
-        lats   = sorted(r["latency_s"] * 1000 for r in ok)
-        tps_l  = [r["tps"] for r in ok]
-        total_tok = sum(r["tokens"] for r in ok)
-        print(f"\\n=== Results ===")
-        print(f"Total requests : {len(results)} ({len(ok)} ok, {len(fail)} failed)")
-        print(f"Total time     : {elapsed_total:.1f}s")
-        print(f"Throughput     : {len(ok)/elapsed_total:.2f} req/s")
-        print(f"Total tokens   : {total_tok}  ({total_tok/elapsed_total:.1f} tok/s aggregate)")
-        print(f"Latency avg    : {statistics.mean(lats):.0f} ms")
-        print(f"Latency p50    : {lats[len(lats)//2]:.0f} ms")
-        print(f"Latency p95    : {lats[int(len(lats)*0.95)]:.0f} ms")
-        print(f"Latency p99    : {lats[int(len(lats)*0.99)]:.0f} ms")
-        print(f"Avg TPS/slot   : {statistics.mean(tps_l):.1f} t/s")
+    lats      = sorted(r["latency_s"] * 1000 for r in ok) if ok else []
+    tps_l     = [r["tps"] for r in ok] if ok else []
+    total_tok = sum(r["tokens"] for r in ok) if ok else 0
+    err_pct   = (len(fail) / max(len(results), 1)) * 100
+    summary = {
+        "model": "${p.modelName}", "hardware": "${p.gpuName} x${p.gpuCount}",
+        "quant": "${p.quantFormat}", "backend": BACKEND, "seed": SEED,
+        "concurrency": CONCURRENCY, "total_requests": len(results),
+        "ok": len(ok), "errors": len(fail),
+        "error_rate_pct": round(err_pct, 2),
+        "total_time_s": round(elapsed_total, 2),
+        "throughput_req_s": round(len(ok) / max(elapsed_total, 0.001), 2),
+        "total_tokens": total_tok,
+        "aggregate_tok_s": round(total_tok / max(elapsed_total, 0.001), 1),
+        "latency_avg_ms": round(statistics.mean(lats), 1) if lats else None,
+        "latency_p50_ms": lats[len(lats)//2] if lats else None,
+        "latency_p95_ms": lats[int(len(lats)*0.95)] if lats else None,
+        "latency_p99_ms": lats[int(len(lats)*0.99)] if lats else None,
+        "avg_tps_per_slot": round(statistics.mean(tps_l), 2) if tps_l else None,
+    }
+    print(f"\\n=== Results ===")
+    for k, v in summary.items(): print(f"  {k:<22}: {v}")
+    with open(JSON_FILE, "w") as f: json.dump(summary, f, indent=2)
+    print(f"\\nJSON results -> {JSON_FILE}")
     if fail:
         print(f"\\nFailed requests ({len(fail)}):")
-        for r in fail[:5]:
-            print(f"  req {r['idx']}: {r.get('error','unknown')}")
-    return results
+        for r in fail[:5]: print(f"  req {r['idx']}: {r.get('error','unknown')}")
+    return summary
+
+async def warmup(session):
+    url, payload = build_request("ping", -1)
+    try:
+        async with session.post(url, json=payload,
+                                timeout=aiohttp.ClientTimeout(total=60)) as resp:
+            await resp.read()
+        print("Warmup complete (model loaded into VRAM).")
+    except Exception as e:
+        print(f"Warmup warning: {e}")
 
 if __name__ == "__main__":
     try:
         import aiohttp
     except ImportError:
-        print("Installing aiohttp..."); import subprocess; subprocess.run([sys.executable,"-m","pip","install","aiohttp","-q"])
+        print("Installing aiohttp...")
+        subprocess.run([sys.executable,"-m","pip","install","aiohttp","-q"])
         import aiohttp
-    asyncio.run(run_load_test())
+
+    # Start GPU monitoring
+    gpu_proc = None
+    if shutil.which("nvidia-smi"):
+        gpu_proc = subprocess.Popen(
+            ["nvidia-smi","dmon","-s","u","-d","1"],
+            stdout=open(GPU_LOG,"w"), stderr=subprocess.DEVNULL)
+        print(f"GPU utilization monitoring started -> {GPU_LOG}")
+
+    async def main():
+        connector = aiohttp.TCPConnector(limit=CONCURRENCY + 4)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Warmup: load model into VRAM before timing starts
+            print("Warming up (first request loads model into VRAM)...")
+            await warmup(session)
+        return await run_load_test()
+
+    summary = asyncio.run(main())
+
+    if gpu_proc:
+        gpu_proc.terminate()
+
+    if summary["error_rate_pct"] > ERROR_THRESHOLD:
+        print(f"\\nFAIL: error rate {summary['error_rate_pct']}% exceeds {ERROR_THRESHOLD}% threshold")
+        sys.exit(1)
 `;
 }
 
