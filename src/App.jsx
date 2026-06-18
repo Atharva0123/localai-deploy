@@ -2308,10 +2308,10 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
 
 // ─── STRESS TEST DEPLOYER ─────────────────────────────────────────────────────
 // ── Simulation step generator ────────────────────────────────
-function generateSimSteps(scriptType,params,bestQuant){
+function generateSimSteps(scriptType,params,bestQuant,script,filename){
   const steps=[];
   const add=(text,delay=80)=>steps.push({text,delay});
-  const tps=bestQuant?.speed||20;
+  const tps=Number(bestQuant?.speed)||20;
   const outputTok=256;
   const baseLatMs=Math.round((outputTok/Math.max(tps,1))*1000);
   const loadFactor=1+Math.max(params.concurrency-1,0)*0.04;
@@ -2321,12 +2321,25 @@ function generateSimSteps(scriptType,params,bestQuant){
   const errCount=params.totalRequests-okCount;
   const errPct=(errCount/params.totalRequests*100).toFixed(2);
   const gpuUtil=Math.min(95,Math.round(60+(tps/100)*30+(params.concurrency/100)*10));
-  // seeded noise: deterministic per-request variation so reruns differ
   const noise=(i,amp=0.25)=>1-amp/2+((i*7+13)%17)/17*amp;
   const mTag=params.ollamaTag||params.modelId;
   const mName=params.modelName;
+  const vramUsed=bestQuant?.vramReq?bestQuant.vramReq.toFixed(1):Math.round(params.paramsBillion*0.5);
+  const vramTotal=params.vramGb;
+  const cmd=scriptType==="python"?`python3 ${filename}`:`bash ${filename}`;
+  const gpuSnap=()=>`\x1b[36m[nvidia-smi]\x1b[0m GPU0 \x1b[93m${gpuUtil}%\x1b[0m util | \x1b[32m${vramUsed}/${vramTotal} GiB\x1b[0m | ${Math.round(params.tdpW*0.85)}W | 67°C`;
+  const pass=parseFloat(errPct)<5;
 
-  const headerLines=(backend,totalSteps)=>[
+  // ── Show script content then run command ───────────────────
+  add(`\x1b[93m$ cat ${filename}\x1b[0m`,300);
+  if(script){
+    script.split('\n').forEach(l=>add(l,6));
+  }
+  add(``,200);
+  add(`\x1b[93m$ ${cmd}\x1b[0m`,500);
+  add(``,100);
+
+  const headerLines=(backend)=>[
     `\x1b[1;36m╔══════════════════════════════════════════════════╗\x1b[0m`,
     `\x1b[1;36m║  LocalAI Deploy — Virtual Simulation             ║\x1b[0m`,
     `\x1b[1;36m╚══════════════════════════════════════════════════╝\x1b[0m`,
@@ -2338,167 +2351,163 @@ function generateSimSteps(scriptType,params,bestQuant){
     ``,
   ];
 
+  // shared result block used by all backends
+  const resultBlock=(backend,jsonFile)=>{
+    add(``,100);
+    add(`\x1b[1;36m╔══════════════ RESULTS ══════════════╗\x1b[0m`,300);
+    add(`  \x1b[93mbackend\x1b[0m      : ${backend}`,60);
+    add(`  \x1b[93mmodel\x1b[0m        : ${mTag}`,60);
+    add(`  \x1b[93mhardware\x1b[0m     : ${params.gpuName} ×${params.gpuCount}`,60);
+    add(`  \x1b[93mquant\x1b[0m        : ${params.quantFormat}  seed=42`,60);
+    add(`  \x1b[93mconcurrency\x1b[0m  : ${params.concurrency}`,60);
+    add(`  ─────────────────────────────────────`,50);
+    add(`  total_requests : ${params.totalRequests}`,60);
+    add(`  ok             : \x1b[32m${okCount}\x1b[0m`,60);
+    add(`  errors         : \x1b[31m${errCount}\x1b[0m`,60);
+    add(`  error_rate     : \x1b[${pass?"32":"31"}m${errPct}%  ${pass?"✓ PASS (< 5%)":"✗ FAIL (≥ 5%)"}\x1b[0m`,60);
+    add(`  ─────────────────────────────────────`,50);
+    add(`  latency_avg    : \x1b[93m${avgLatMs} ms\x1b[0m`,60);
+    add(`  latency_p50    : ${Math.round(avgLatMs*0.95)} ms`,60);
+    add(`  latency_p95    : \x1b[93m${Math.round(avgLatMs*1.35)} ms\x1b[0m`,60);
+    add(`  latency_p99    : \x1b[31m${Math.round(avgLatMs*1.65)} ms\x1b[0m`,60);
+    add(`  avg_tps/slot   : \x1b[32m${tps.toFixed(1)} t/s\x1b[0m`,60);
+    add(`  total_tps      : \x1b[32m${(tps*params.concurrency*0.7).toFixed(1)} t/s\x1b[0m`,60);
+    add(`  gpu_util_avg   : ${gpuUtil}%`,60);
+    add(`  vram_used      : ${vramUsed}/${vramTotal} GiB`,60);
+    add(`  ─────────────────────────────────────`,50);
+    add(`  \x1b[32m✓\x1b[0m ${jsonFile}  (2.4 KB)`,200);
+    add(`  \x1b[32m✓\x1b[0m gpu_metrics_${params.modelId}.log  (${Math.round(params.totalRequests*0.15)} KB)`,100);
+    add(``,100);
+    add(pass?`\x1b[1;32m✓ Done — exit 0\x1b[0m`:`\x1b[1;31m✗ Done — exit 1 (error rate exceeded threshold)\x1b[0m`,400);
+  };
+
   if(scriptType==="ollama"){
-    headerLines("Ollama",4).forEach(l=>add(l,40));
+    headerLines("Ollama").forEach(l=>add(l,40));
     add(`\x1b[36m[0/4] Setting up Python venv + RunPod SDK...\x1b[0m`,300);
-    add(`  ✓ Virtual environment created (.venv)`,500);
-    add(`  ✓ pip install runpod ... done`,600);
+    add(`  python3 -m venv .venv && source .venv/bin/activate`,400);
+    add(`  pip install runpod ...`,600);
+    add(`  \x1b[32m✓\x1b[0m RunPod SDK ready (set RUNPOD_API_KEY to manage pods)`,300);
     add(`\x1b[36m[1/4] Checking Ollama installation...\x1b[0m`,400);
-    add(`  ✓ ollama v0.4.7 found`,600);
+    add(`  \x1b[32m✓\x1b[0m ollama v0.4.7  /usr/local/bin/ollama`,600);
     add(`\x1b[36m[2/4] Pulling ${mTag} ...\x1b[0m`,300);
-    add(`  pulling manifest...`,800);
-    add(`  \x1b[32mpulling ${params.quantFormat} weights: ████████████ 100%\x1b[0m`,900);
-    add(`  verifying sha256 digest... done`,400);
-    add(`  ✓ Model ready.`,300);
+    add(`  pulling manifest... done`,800);
+    add(`  \x1b[32m████████████ 100%\x1b[0m  ${vramUsed} GB  ${params.quantFormat}`,1200);
+    add(`  verifying sha256... ok`,400);
+    add(`  \x1b[32m✓\x1b[0m ${mTag} ready`,300);
     add(`\x1b[36m[3/4] Starting Ollama (OLLAMA_NUM_PARALLEL=${params.concurrency})...\x1b[0m`,300);
-    add(`  GPU monitoring: nvidia-smi dmon → gpu_metrics_${params.modelId}.log`,400);
-    add(`  Server PID: 12847  |  listening on :11434`,500);
-    add(`  Warming up (loading ${params.vramGb} GB into VRAM)...`,300);
-    add(`  ✓ Warmup complete. Starting timed load test.`,1000);
-    add(`\x1b[36m[4/4] Running ${params.totalRequests} requests at ${params.concurrency} concurrency...\x1b[0m`,200);
+    add(`  PID 18247  listening :11434  CUDA_VISIBLE_DEVICES=${Array.from({length:params.gpuCount},(_,i)=>i).join(",")}`,400);
+    add(`  ${gpuSnap()}`,300);
+    add(`  \x1b[32m[nvidia-smi dmon]\x1b[0m → gpu_metrics_${params.modelId}.log`,200);
+    add(`  Warmup request (cold start)... latency: ${baseLatMs}ms`,800);
+    add(`  \x1b[32m✓\x1b[0m VRAM loaded. Timed test starting now.`,300);
+    add(`\x1b[36m[4/4] Load test: ${params.totalRequests} req × ${params.concurrency} workers\x1b[0m`,200);
+    add(`  ${"req".padEnd(5)} ${"status".padEnd(8)} ${"latency".padEnd(10)} ${"tokens".padEnd(8)} tps`,50);
+    add(`  ${"─".repeat(46)}`,50);
     for(let i=1;i<=params.totalRequests;i++){
       const lat=Math.round(avgLatMs*noise(i));
       const tok=Math.round(outputTok*noise(i,0.15));
       const t=(tok/(lat/1000)).toFixed(1);
       const ok=i>Math.floor(params.totalRequests*errRate);
-      if(ok) add(`  req=${String(i).padStart(3)} \x1b[32mOK\x1b[0m  latency=${lat}ms  tokens=${tok}  tps=${t}`,i<=5?120:35);
-      else    add(`  req=${String(i).padStart(3)} \x1b[31mERR\x1b[0m latency=${lat}ms  http=503`,60);
+      if(ok) add(`  ${String(i).padEnd(5)} \x1b[32mOK\x1b[0m      ${(lat+"ms").padEnd(10)} ${String(tok).padEnd(8)} ${t}`,i<=5?160:28);
+      else    add(`  ${String(i).padEnd(5)} \x1b[31mERROR\x1b[0m   ${(lat+"ms").padEnd(10)} http=503`,55);
+      if(i%Math.ceil(params.totalRequests/4)===0) add(`  ${gpuSnap()}  [${i}/${params.totalRequests}]`,50);
     }
-    add(``,100);
-    add(`\x1b[1;32m=== Summary ===\x1b[0m`,200);
-    add(`  model                : ${mTag}`,50);
-    add(`  hardware             : ${params.gpuName} ×${params.gpuCount}`,50);
-    add(`  quant                : ${params.quantFormat}`,50);
-    add(`  concurrency          : ${params.concurrency}`,50);
-    add(`  total_requests       : ${params.totalRequests}`,50);
-    add(`  ok                   : ${okCount}`,50);
-    add(`  errors               : ${errCount}`,50);
-    add(`  error_rate_pct       : ${errPct}`,50);
-    add(`  latency_avg_ms       : ${avgLatMs}`,50);
-    add(`  latency_p50_ms       : ${Math.round(avgLatMs*0.95)}`,50);
-    add(`  latency_p95_ms       : ${Math.round(avgLatMs*1.35)}`,50);
-    add(`  latency_p99_ms       : ${Math.round(avgLatMs*1.65)}`,50);
-    add(`  avg_tps_per_slot     : ${tps.toFixed?tps.toFixed(1):tps}`,50);
-    add(`  total_tps            : ${(tps*params.concurrency*0.7).toFixed(1)} t/s aggregate`,50);
-    add(`  gpu_utilization_avg  : ${gpuUtil}%`,50);
-    add(``,100);
-    add(`  \x1b[32m✓\x1b[0m JSON → results_ollama_${params.modelId}.json`,200);
-    add(`  \x1b[32m✓\x1b[0m GPU log → gpu_metrics_${params.modelId}.log`,100);
-    add(`  Done.`,300);
+    resultBlock("Ollama",`results_ollama_${params.modelId}.json`);
   }else if(scriptType==="llamacpp"){
-    headerLines("llama.cpp",5).forEach(l=>add(l,40));
-    add(`\x1b[36m[0/5] Setting up Python venv + RunPod SDK...\x1b[0m`,300);
-    add(`  ✓ .venv created, runpod installed`,700);
-    add(`\x1b[36m[1/5] Installing build tools (cmake, gcc)...\x1b[0m`,300);
-    add(`  apt-get: build-essential cmake git ...`,800);
-    add(`  ✓ Build tools ready`,400);
+    const gLayers=Math.min(Math.floor((params.vramGb*1024*0.85)/Math.max(Math.round(params.paramsBillion*0.8),1)),200);
+    headerLines("llama.cpp").forEach(l=>add(l,40));
+    add(`\x1b[36m[0/5] Python venv + RunPod SDK...\x1b[0m`,300);
+    add(`  python3 -m venv .venv && source .venv/bin/activate`,400);
+    add(`  pip install runpod ...  \x1b[32m✓\x1b[0m`,700);
+    add(`\x1b[36m[1/5] Build tools (apt-get)...\x1b[0m`,300);
+    add(`  build-essential cmake git curl python3-pip ...  \x1b[32m✓\x1b[0m`,900);
     add(`\x1b[36m[2/5] Building llama.cpp (CUDA)...\x1b[0m`,300);
-    add(`  cmake -DGGML_CUDA=ON ...`,600);
-    add(`  [ 15%] Building CXX ...`,800);
-    add(`  [ 42%] Building CUDA kernels ...`,900);
-    add(`  [ 78%] Linking llama-server ...`,700);
-    add(`  \x1b[32m✓ Build complete\x1b[0m`,400);
-    add(`\x1b[36m[3/5] Downloading ${params.modelId}-${params.quantFormat}.gguf...\x1b[0m`,300);
-    add(`  Downloading from HuggingFace: ${params.hfModelId||params.modelId}`,600);
-    add(`  \x1b[32m████████████ 100%\x1b[0m  ${params.vramGb>20?Math.round(params.vramGb*0.9):8} GB`,1000);
-    add(`  ✓ GGUF ready`,400);
+    add(`  cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=all-major`,600);
+    add(`  [18%] Building CUDA object ggml/src/...`,700);
+    add(`  [53%] Building CXX object src/...`,800);
+    add(`  [81%] Linking CXX executable llama-server`,600);
+    add(`  \x1b[32m✓\x1b[0m llama-server built  ./llama.cpp/build/bin/llama-server`,400);
+    add(`\x1b[36m[3/5] Downloading GGUF from HuggingFace...\x1b[0m`,300);
+    add(`  repo: ${params.hfModelId||params.modelId}`,300);
+    add(`  \x1b[32m████████████ 100%\x1b[0m  ${vramUsed} GB  ${params.modelId}-${params.quantFormat}.gguf`,1200);
+    add(`  \x1b[32m✓\x1b[0m GGUF saved`,300);
     add(`\x1b[36m[4/5] Starting llama-server (port 8080, seed=42)...\x1b[0m`,300);
-    add(`  --n-gpu-layers ${Math.min(Math.floor((params.vramGb*1024*0.85)/Math.max(Math.round(params.paramsBillion*0.8),1)),200)} --ctx-size ${params.contextSize} --parallel ${params.concurrency}`,400);
-    add(`  GPU monitoring → gpu_metrics_${params.modelId}.log`,400);
-    add(`  Server ready on :8080`,600);
-    add(`  Warming up (loading into VRAM)...`,300);
-    add(`  ✓ Warmup complete. Starting timed load test.`,800);
-    add(`\x1b[36m[5/5] Running ${params.totalRequests} requests at ${params.concurrency} concurrency...\x1b[0m`,200);
+    add(`  --n-gpu-layers ${gLayers}  --ctx-size ${params.contextSize}  --parallel ${params.concurrency}  --seed 42`,400);
+    add(`  waiting for health endpoint...`,400);
+    add(`  \x1b[32m✓\x1b[0m :8080/health OK`,500);
+    add(`  ${gpuSnap()}`,300);
+    add(`  \x1b[32m[nvidia-smi dmon]\x1b[0m → gpu_metrics_${params.modelId}.log`,200);
+    add(`  Warmup POST /completion... latency: ${baseLatMs}ms`,900);
+    add(`  \x1b[32m✓\x1b[0m VRAM loaded. Timed test starting now.`,300);
+    add(`\x1b[36m[5/5] Load test: ${params.totalRequests} req × ${params.concurrency} workers\x1b[0m`,200);
+    add(`  ${"req".padEnd(5)} ${"status".padEnd(8)} ${"latency".padEnd(10)} ${"tokens".padEnd(8)} tps`,50);
+    add(`  ${"─".repeat(46)}`,50);
     for(let i=1;i<=params.totalRequests;i++){
       const lat=Math.round(avgLatMs*noise(i));
       const tok=Math.round(outputTok*noise(i,0.15));
       const t=(tok/(lat/1000)).toFixed(1);
       const ok=i>Math.floor(params.totalRequests*errRate);
-      if(ok) add(`  req=${String(i).padStart(3)} \x1b[32mOK\x1b[0m  latency=${lat}ms  tokens=${tok}  tps=${t}`,i<=5?120:35);
-      else    add(`  req=${String(i).padStart(3)} \x1b[31mERR\x1b[0m latency=${lat}ms  http=503`,60);
+      if(ok) add(`  ${String(i).padEnd(5)} \x1b[32mOK\x1b[0m      ${(lat+"ms").padEnd(10)} ${String(tok).padEnd(8)} ${t}`,i<=5?160:28);
+      else    add(`  ${String(i).padEnd(5)} \x1b[31mERROR\x1b[0m   ${(lat+"ms").padEnd(10)} http=503`,55);
+      if(i%Math.ceil(params.totalRequests/4)===0) add(`  ${gpuSnap()}  [${i}/${params.totalRequests}]`,50);
     }
-    add(``,100);
-    add(`\x1b[1;32m=== Summary ===\x1b[0m`,200);
-    add(`  seed=42  |  concurrency=${params.concurrency}  |  error_rate=${errPct}%`,60);
-    add(`  latency_avg_ms : ${avgLatMs}  |  p95 : ${Math.round(avgLatMs*1.35)}  |  p99 : ${Math.round(avgLatMs*1.65)}`,60);
-    add(`  avg_tps_per_slot : ${tps.toFixed?tps.toFixed(1):tps}  |  gpu_util : ${gpuUtil}%`,60);
-    add(`  \x1b[32m✓\x1b[0m JSON → results_llamacpp_${params.modelId}.json`,200);
-    add(`  Done.`,300);
+    resultBlock("llama.cpp",`results_llamacpp_${params.modelId}.json`);
   }else if(scriptType==="vllm"){
-    headerLines("vLLM",4).forEach(l=>add(l,40));
-    add(`\x1b[36m[0/4] Setting up Python venv + RunPod SDK...\x1b[0m`,300);
-    add(`  ✓ .venv created, runpod + locust installed`,800);
+    headerLines("vLLM").forEach(l=>add(l,40));
+    add(`\x1b[36m[0/4] Python venv + RunPod SDK...\x1b[0m`,300);
+    add(`  python3 -m venv .venv && source .venv/bin/activate`,400);
+    add(`  pip install runpod ...  \x1b[32m✓\x1b[0m`,700);
     add(`\x1b[36m[1/4] Installing vLLM + locust...\x1b[0m`,300);
-    add(`  pip install vllm locust ...`,800);
-    add(`  ✓ vLLM ready`,400);
-    add(`\x1b[36m[2/4] Launching vLLM server (tensor-parallel=${params.gpuCount}, seed=42)...\x1b[0m`,300);
+    add(`  pip install vllm locust ...`,900);
+    add(`  \x1b[32m✓\x1b[0m vLLM ready`,400);
+    add(`\x1b[36m[2/4] Launching vLLM (tensor-parallel=${params.gpuCount}, seed=42)...\x1b[0m`,300);
     add(`  --model ${params.hfModelId||params.modelId}`,200);
-    add(`  --max-model-len ${params.contextSize} --gpu-memory-utilization 0.90`,200);
-    add(`  Waiting for server...`,400);
-    for(let i=0;i<5;i++) add(`  .`,300);
-    add(`  ✓ Server ready on :8000`,500);
-    add(`  GPU monitoring → gpu_metrics_${params.modelId}.log`,300);
-    add(`  Warming up (first request loads weights)...`,300);
-    add(`  ✓ Warmup complete.`,800);
-    add(`\x1b[36m[3/4] Writing locust test file...\x1b[0m`,200);
-    add(`  ✓ locustfile_${params.modelId}.py created`,400);
-    add(`\x1b[36m[4/4] Running locust: ${params.totalRequests} reqs at ${params.concurrency} users...\x1b[0m`,200);
-    add(`  Type     Name                       # reqs  # fails  Avg   Min   Max  RPS`,300);
-    add(`  ────────────────────────────────────────────────────────────────────────────`,100);
-    for(let i=1;i<=6;i++){
-      const req=Math.round(params.totalRequests/6*i);
+    add(`  --tensor-parallel-size ${params.gpuCount}  --max-model-len ${params.contextSize}  --seed 42`,200);
+    add(`  waiting for /health`,400);
+    for(let i=0;i<4;i++) add(`  .`,350);
+    add(`  \x1b[32m✓\x1b[0m :8000/health OK`,500);
+    add(`  ${gpuSnap()}`,300);
+    add(`  \x1b[32m[nvidia-smi dmon]\x1b[0m → gpu_metrics_${params.modelId}.log`,200);
+    add(`  Warmup POST /v1/chat/completions... latency: ${baseLatMs}ms`,900);
+    add(`  \x1b[32m✓\x1b[0m VRAM loaded. Timed test starting now.`,300);
+    add(`\x1b[36m[3/4] Writing locustfile...\x1b[0m`,200);
+    add(`  \x1b[32m✓\x1b[0m locustfile_${params.modelId}.py  (seed=42 in every payload)`,400);
+    add(`\x1b[36m[4/4] Running locust: ${params.totalRequests} req / ${params.concurrency} users\x1b[0m`,200);
+    add(`  ${"Type".padEnd(6)} ${"Name".padEnd(26)} ${"#reqs".padEnd(7)} ${"#fail".padEnd(7)} ${"Avg".padEnd(6)} ${"p95".padEnd(6)} RPS`,200);
+    add(`  ${"─".repeat(64)}`,50);
+    for(let i=1;i<=5;i++){
+      const req=Math.round(params.totalRequests/5*i);
       const fail=Math.round(req*errRate);
       const lat=Math.round(avgLatMs*noise(i,0.1));
-      add(`  POST     /v1/chat/completions  ${String(req).padStart(6)}  ${String(fail).padStart(7)}  ${lat}  ${Math.round(lat*0.7)}  ${Math.round(lat*1.5)}  ${(req/60).toFixed(1)}`,500);
+      const rps=(req/60).toFixed(1);
+      add(`  ${"POST".padEnd(6)} ${"/v1/chat/completions".padEnd(26)} ${String(req).padEnd(7)} ${String(fail).padEnd(7)} ${String(lat).padEnd(6)} ${String(Math.round(lat*1.35)).padEnd(6)} ${rps}`,550);
+      if(i%2===0) add(`  ${gpuSnap()}  [${req}/${params.totalRequests}]`,50);
     }
-    add(``,100);
-    add(`\x1b[1;32m=== Summary (from locust CSV) ===\x1b[0m`,200);
-    add(`  model        : ${params.modelId}  seed=42`,50);
-    add(`  total        : ${params.totalRequests}  errors: ${errCount}  error_rate: ${errPct}%`,50);
-    add(`  latency_avg  : ${avgLatMs} ms  p95: ${Math.round(avgLatMs*1.35)} ms  p99: ${Math.round(avgLatMs*1.65)} ms`,50);
-    add(`  req_per_sec  : ${(params.totalRequests/60).toFixed(1)}  |  gpu_util: ${gpuUtil}%`,50);
-    add(`  \x1b[32m✓\x1b[0m JSON → results_vllm_${params.modelId}.json`,200);
-    add(`  Done.`,300);
+    resultBlock("vLLM",`results_vllm_${params.modelId}.json`);
   }else{
-    headerLines("Python asyncio",1).forEach(l=>add(l,40));
-    add(`  Setup: .venv + aiohttp + runpod`,300);
-    add(`  ✓ RunPod SDK imported (set RUNPOD_API_KEY to use)`,500);
-    add(`  GPU monitoring: nvidia-smi via subprocess → gpu_metrics_${params.modelId}.log`,300);
-    add(`  Warming up...`,300);
-    add(`  ✓ Warmup complete. Starting dispatcher.`,800);
+    const totS=(params.totalRequests/(params.concurrency*tps/outputTok)).toFixed(1);
+    headerLines("Python asyncio").forEach(l=>add(l,40));
+    add(`  .venv activated | aiohttp + runpod installed`,400);
+    add(`  \x1b[32m✓\x1b[0m RunPod SDK imported (RUNPOD_API_KEY not set — skipping pod ops)`,500);
+    add(`  ${gpuSnap()}`,300);
+    add(`  \x1b[32m[nvidia-smi dmon]\x1b[0m subprocess → gpu_metrics_${params.modelId}.log`,200);
+    add(`  Warmup request... latency: ${baseLatMs}ms`,900);
+    add(`  \x1b[32m✓\x1b[0m VRAM loaded. Dispatcher starting.`,300);
     add(``,100);
-    add(`\x1b[36m=== Load test: ${params.totalRequests} requests | ${params.concurrency} concurrent | ${params.ollamaTag||params.modelId} ===\x1b[0m`,200);
+    add(`\x1b[36m=== ${params.totalRequests} requests | ${params.concurrency} concurrent | ${mTag} ===\x1b[0m`,200);
+    add(`  ${"req".padEnd(5)} ${"latency".padEnd(10)} ${"tokens".padEnd(8)} tps`,50);
+    add(`  ${"─".repeat(36)}`,50);
     for(let i=0;i<params.totalRequests;i++){
-      const lat=avgLatMs*noise(i);
+      const lat=Math.round(avgLatMs*noise(i));
       const tok=Math.round(outputTok*noise(i,0.15));
       const t=(tok/(lat/1000)).toFixed(1);
       const ok=i>=Math.floor(params.totalRequests*errRate);
-      if(ok) add(`  req ${String(i).padStart(3)}: ${Math.round(lat)}ms | ${tok} tok | ${t} t/s`,i<5?120:35);
-      else    add(`  req ${String(i).padStart(3)}: \x1b[31mtimeout / HTTP 503\x1b[0m`,60);
+      if(ok) add(`  ${String(i).padEnd(5)} ${(lat+"ms").padEnd(10)} ${String(tok).padEnd(8)} ${t}`,i<5?160:28);
+      else    add(`  ${String(i).padEnd(5)} \x1b[31mtimeout/503\x1b[0m`,55);
+      if(i>0&&i%Math.ceil(params.totalRequests/4)===0) add(`  ${gpuSnap()}  [${i}/${params.totalRequests}]`,50);
     }
-    const totS=(params.totalRequests/(params.concurrency*tps/outputTok)).toFixed(1);
-    add(``,100);
-    add(`\x1b[1;32m=== Results ===\x1b[0m`,200);
-    add(`  model                : ${params.modelName}`,50);
-    add(`  backend              : ${params.ollamaTag?"ollama":"vllm"}  seed=42`,50);
-    add(`  concurrency          : ${params.concurrency}`,50);
-    add(`  total_requests       : ${params.totalRequests}  ok: ${okCount}  errors: ${errCount}`,50);
-    add(`  error_rate_pct       : ${errPct}`,50);
-    add(`  total_time_s         : ${totS}`,50);
-    add(`  latency_avg_ms       : ${avgLatMs}`,50);
-    add(`  latency_p50_ms       : ${Math.round(avgLatMs*0.95)}`,50);
-    add(`  latency_p95_ms       : ${Math.round(avgLatMs*1.35)}`,50);
-    add(`  latency_p99_ms       : ${Math.round(avgLatMs*1.65)}`,50);
-    add(`  avg_tps_per_slot     : ${tps.toFixed?tps.toFixed(1):tps}`,50);
-    add(`  gpu_utilization_avg  : ${gpuUtil}%`,50);
-    add(`  \x1b[32m✓\x1b[0m JSON → results_python_${params.modelId}.json`,200);
-    const threshold=5;
-    if(parseFloat(errPct)>threshold){
-      add(`  \x1b[31m✗ FAIL: error rate ${errPct}% > ${threshold}% threshold → exit 1\x1b[0m`,300);
-    }else{
-      add(`  \x1b[32m✓ PASS: error rate ${errPct}% within ${threshold}% threshold\x1b[0m`,300);
-    }
-    add(`  Done.`,200);
+    add(`  total_time: ${totS}s`,100);
+    resultBlock("Python asyncio",`results_python_${params.modelId}.json`);
   }
   return steps;
 }
@@ -2586,13 +2595,22 @@ function StressTestDeployer({selectedMap,selectedModel}){
     a.click();
   };
 
+  const doDownloadLog=()=>{
+    const plain=simLines.map(l=>l.replace(/\x1b\[[0-9;]*m/g,'')).join('\n');
+    const blob=new Blob([plain],{type:"text/plain"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=`sim-log-${params.modelId}-${scriptType}.txt`;
+    a.click();
+  };
+
   const doSimulate=()=>{
     if(simRunning)return;
     clearTimeout(timerRef.current);
     setSimLines([]);
     setSimDone(false);
     setSimRunning(true);
-    const steps=generateSimSteps(scriptType,params,bestQuant);
+    const steps=generateSimSteps(scriptType,params,bestQuant,script,filename);
     let idx=0;
     const advance=()=>{
       if(idx>=steps.length){setSimRunning(false);setSimDone(true);return;}
@@ -2718,34 +2736,34 @@ function StressTestDeployer({selectedMap,selectedModel}){
         </div>
         {/* Terminal body */}
         <div ref={termRef} style={{
-          background:"#080812",border:"1px solid var(--border2)",borderRadius:"0 0 10px 10px",
-          padding:"12px 14px",height:300,overflowY:"auto",overflowX:"auto",
-          fontFamily:"'JetBrains Mono',monospace",fontSize:11,lineHeight:1.7,whiteSpace:"pre",
+          background:"#06060f",border:"1px solid var(--border2)",borderRadius:"0 0 10px 10px",
+          padding:"14px 16px",height:360,overflowY:"auto",overflowX:"auto",
+          fontFamily:"'JetBrains Mono',monospace",fontSize:11.5,lineHeight:1.75,whiteSpace:"pre",
+          color:"#e8e6f0",
         }}>
           {simLines.length===0&&!simRunning&&(
-            <span style={{color:"#444"}}>
+            <span style={{color:"#555"}}>
               {hasHw&&hasModel
-                ? `$ # Click "Run Simulation" to preview expected output\n$ # Uses estimated metrics for ${params.gpuName} × ${params.gpuCount} + ${params.modelName} (${params.quantFormat})`
-                : "$ # Select hardware and a model first"}
+                ? `$ # Click "▶ Run Simulation" to preview expected output\n$ # Script will display first, then execution logs follow\n$ # Using estimates for ${params.gpuName} × ${params.gpuCount} + ${params.modelName} (${params.quantFormat})`
+                : "$ # Select hardware and a model first, then run simulation"}
             </span>
           )}
           {simLines.map((line,i)=>{
-            // Strip ANSI for rendering — map colors to CSS
             const ansiMap=[
-              [/\x1b\[1;36m(.*?)\x1b\[0m/g,'<span style="color:#67e8f9;font-weight:700">$1</span>'],
-              [/\x1b\[1;32m(.*?)\x1b\[0m/g,'<span style="color:#86efac;font-weight:700">$1</span>'],
+              [/\x1b\[1;36m(.*?)\x1b\[0m/g,'<span style="color:#22d3ee;font-weight:700">$1</span>'],
+              [/\x1b\[1;32m(.*?)\x1b\[0m/g,'<span style="color:#4ade80;font-weight:700">$1</span>'],
+              [/\x1b\[1;31m(.*?)\x1b\[0m/g,'<span style="color:#f87171;font-weight:700">$1</span>'],
               [/\x1b\[36m(.*?)\x1b\[0m/g,'<span style="color:#67e8f9">$1</span>'],
-              [/\x1b\[32m(.*?)\x1b\[0m/g,'<span style="color:#86efac">$1</span>'],
-              [/\x1b\[31m(.*?)\x1b\[0m/g,'<span style="color:#f87171">$1</span>'],
-              [/\x1b\[93m(.*?)\x1b\[0m/g,'<span style="color:#fde68a">$1</span>'],
+              [/\x1b\[32m(.*?)\x1b\[0m/g,'<span style="color:#4ade80">$1</span>'],
+              [/\x1b\[31m(.*?)\x1b\[0m/g,'<span style="color:#ff6b6b">$1</span>'],
+              [/\x1b\[93m(.*?)\x1b\[0m/g,'<span style="color:#fbbf24">$1</span>'],
             ];
             let html=line.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
             ansiMap.forEach(([re,tmpl])=>{html=html.replace(re,tmpl);});
-            // Remove any remaining escape sequences
             html=html.replace(/\x1b\[[0-9;]*m/g,'');
-            return <div key={i} dangerouslySetInnerHTML={{__html:html||' '}}/>;
+            return <div key={i} dangerouslySetInnerHTML={{__html:html||'​'}}/>;
           })}
-          {simRunning&&<span style={{color:"#a8a8ff",animation:"blink 0.8s step-end infinite"}}>█</span>}
+          {simRunning&&<span style={{color:"#a78bfa"}}>█</span>}
         </div>
         {/* Terminal controls */}
         <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
@@ -2763,6 +2781,12 @@ function StressTestDeployer({selectedMap,selectedModel}){
               padding:"8px 14px",borderRadius:8,border:"1px solid rgba(239,68,68,0.4)",fontFamily:"inherit",
               fontSize:12,fontWeight:600,cursor:"pointer",background:"rgba(239,68,68,0.08)",color:"#f87171",
             }}>■ Stop</button>
+          )}
+          {simDone&&(
+            <button onClick={doDownloadLog} style={{
+              padding:"8px 16px",borderRadius:8,border:"1px solid rgba(74,222,128,0.4)",fontFamily:"inherit",
+              fontSize:12,fontWeight:700,cursor:"pointer",background:"rgba(74,222,128,0.08)",color:"#4ade80",
+            }}>⬇ Download Log</button>
           )}
           {simLines.length>0&&!simRunning&&(
             <button onClick={()=>{setSimLines([]);setSimDone(false);}} style={{
