@@ -1352,6 +1352,39 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
 
   const STATUS_COL={Normal:"var(--green)",Warning:"var(--amber)",Critical:"var(--red)"};
   const DOT_COL={processing:"#3B82F6",queued:"#F59E0B",failed:"#EF4444",done:"#10B981"};
+
+  // ── live dot animation ──────────────────────────────────────────────────────
+  const [liveStates,setLiveStates]=useState([]);
+
+  // Re-seed when slider changes cause a new states array
+  const stateKey=calc.states.join('');
+  useEffect(()=>{
+    setLiveStates(calc.states.map(s=>({state:s,tick:0})));
+  },[stateKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Animation tick every 550 ms
+  useEffect(()=>{
+    const id=setInterval(()=>{
+      setLiveStates(prev=>{
+        if(!prev.length)return prev;
+        const next=prev.map(d=>({...d,tick:d.tick+1}));
+        for(let i=0;i<next.length;i++){
+          if(next[i].state==='done'){
+            // Promote oldest queued to processing, then reset this dot
+            const qi=next.findIndex((x,j)=>j!==i&&x.state==='queued');
+            if(qi>=0) next[qi]={...next[qi],state:'processing',tick:0};
+            next[i]={...next[i],state:'processing',tick:0};
+          } else if(next[i].state==='processing'){
+            // ~12 % chance per tick to complete
+            if(Math.random()<0.12) next[i]={...next[i],state:'done',tick:0};
+          }
+          // queued & failed pulse via tick — no state changes
+        }
+        return next;
+      });
+    },550);
+    return()=>clearInterval(id);
+  },[]);
   const sc=STATUS_COL[calc.status];
 
   const SRow=({label,value,setValue,min,max,step,fmt})=>(
@@ -1411,16 +1444,42 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
       <div style={{marginBottom:12}}>
         <div style={{fontSize:11,color:"var(--text2)",marginBottom:8}}>Request state — each dot = 1 request</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-          {calc.states.map((state,i)=>(
-            <div key={i} style={{width:26,height:26,borderRadius:"50%",background:DOT_COL[state]+"22",border:`2px solid ${DOT_COL[state]}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:DOT_COL[state],fontFamily:"'JetBrains Mono',monospace"}}>
-              {i+1}
-            </div>
-          ))}
+          {(liveStates.length?liveStates:calc.states.map(s=>({state:s,tick:0}))).map((d,i)=>{
+            const s=typeof d==="string"?d:d.state;
+            const tick=typeof d==="object"?d.tick:0;
+            const col=DOT_COL[s];
+            // Processing: scale pulses 1.12 ↔ 0.92 every 2 ticks
+            const isProc=s==="processing";
+            const isDone=s==="done";
+            const isFail=s==="failed";
+            const isQueue=s==="queued";
+            const pCycle=tick%4;
+            const scale=isProc?(pCycle<2?1.12:0.92):isDone?1.18:1;
+            const opacity=isFail?(tick%2===0?1:0.35):isQueue?(tick%6<3?1:0.55):1;
+            const shadow=isDone?`0 0 10px ${col}cc`:isProc&&pCycle<2?`0 0 7px ${col}88`:"none";
+            const label=isDone?"✓":isFail?"✗":`${i+1}`;
+            return(
+              <div key={i} title={s.charAt(0).toUpperCase()+s.slice(1)} style={{
+                width:26,height:26,borderRadius:"50%",
+                background:col+(isDone?"55":"22"),
+                border:`${isDone?3:2}px solid ${col}`,
+                display:"flex",alignItems:"center",justifyContent:"center",
+                fontSize:isDone||isFail?11:8,fontWeight:700,color:col,
+                fontFamily:"'JetBrains Mono',monospace",
+                transform:`scale(${scale})`,
+                opacity,
+                boxShadow:shadow,
+                transition:"transform 0.28s ease,opacity 0.28s ease,box-shadow 0.28s ease,background 0.2s,border-color 0.2s",
+              }}>
+                {label}
+              </div>
+            );
+          })}
         </div>
-        <div style={{display:"flex",gap:16,marginTop:8}}>
-          {[["Processing","#3B82F6"],["Queued","#F59E0B"],["Failed","#EF4444"],["Done","#10B981"]].map(([l,c])=>(
-            <div key={l} style={{display:"flex",alignItems:"center",gap:5}}>
-              <div style={{width:10,height:10,borderRadius:"50%",border:`2px solid ${c}`,background:c+"22"}}/>
+        <div style={{display:"flex",gap:16,marginTop:8,flexWrap:"wrap"}}>
+          {[["Processing","#3B82F6","Actively generating tokens, pulses"],["Queued","#F59E0B","Waiting for VRAM slot, breathes"],["Failed","#EF4444","Dropped — VRAM/queue overflow, blinks"],["Done","#10B981","Request completed, green flash"]].map(([l,c,tip])=>(
+            <div key={l} title={tip} style={{display:"flex",alignItems:"center",gap:5,cursor:"default"}}>
+              <div style={{width:10,height:10,borderRadius:"50%",border:`2px solid ${c}`,background:c+"33"}}/>
               <span style={{fontSize:10,color:"var(--text3)"}}>{l}</span>
             </div>
           ))}
