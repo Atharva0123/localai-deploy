@@ -273,6 +273,50 @@ const MODELS = [
     quants:[{format:"Q8_0",size:36,vramReq:40,speed:18,quality:100,ppl:4.5,bpw:8},{format:"Q5_K_M",size:24,vramReq:27,speed:28,quality:96,ppl:4.7,bpw:5.5},{format:"Q4_K_M",size:20.5,vramReq:23,speed:36,quality:93,ppl:4.8,bpw:4.5},{format:"Q4_K_S",size:19,vramReq:22,speed:39,quality:92,ppl:4.85,bpw:4.25},{format:"Q3_K_M",size:15,vramReq:18,speed:52,quality:82,ppl:5.5,bpw:3.35},{format:"Q2_K",size:11.5,vramReq:14,speed:70,quality:69,ppl:6.5,bpw:2.63},{format:"IQ2_XXS",size:9.8,vramReq:12,speed:85,quality:64,ppl:7.2,bpw:2.3}],
     benchmarks:{mmlu:68,hellaswag:80,arc:72,gsm8k:73,humaneval:78},
     stressTests:[{hw:"RTX 4090",tokens_sec:32,ctx:8192,latency_ms:31,vram_used:21,score:90},{hw:"RTX 3090",tokens_sec:24,ctx:4096,latency_ms:42,vram_used:21,score:85},{hw:"M4 Max",tokens_sec:28,ctx:16384,latency_ms:36,vram_used:21,score:88}]},
+
+  // ── 192 GB TIER — fit within 192 GB, up to 25 concurrent users ─────────────
+
+  // 90B Vision: ideal for 2×A100 80GB (BF16 fits at 183 GB; Q8_0=99 GB leaves 93 GB headroom)
+  {id:"llama32_90b_vision",name:"Llama 3.2 90B Vision-Instruct",family:"Llama 3.2",params:90,category:"Vision",developer:"Meta",license:"Llama Community",released:"2024-09",contextLen:131072,hfUrl:"https://huggingface.co/meta-llama/Llama-3.2-90B-Vision-Instruct",
+    arch:{layers:80,heads:8,headDim:128},
+    quants:[{format:"BF16",size:180,vramReq:183,speed:8,quality:100,ppl:5.8,bpw:16},{format:"Q8_0",size:96,vramReq:99,speed:14,quality:99,ppl:5.85,bpw:8},{format:"Q6_K",size:74,vramReq:77,speed:18,quality:98,ppl:5.9,bpw:6.5},{format:"Q5_K_M",size:63,vramReq:66,speed:22,quality:96,ppl:5.95,bpw:5.5},{format:"Q4_K_M",size:54,vramReq:57,speed:28,quality:93,ppl:6.1,bpw:4.5},{format:"Q3_K_M",size:41,vramReq:44,speed:38,quality:84,ppl:6.55,bpw:3.35},{format:"Q2_K",size:32,vramReq:35,speed:50,quality:73,ppl:7.5,bpw:2.63},{format:"IQ2_XXS",size:27,vramReq:30,speed:62,quality:68,ppl:8.2,bpw:2.3}],
+    benchmarks:{mmlu:86.0,hellaswag:90.2,arc:83.4,gsm8k:79.0,humaneval:72.0},
+    stressTests:[{hw:"H100 SXM",tokens_sec:42,ctx:32768,latency_ms:24,vram_used:57,score:98},{hw:"MI300X",tokens_sec:40,ctx:32768,latency_ms:25,vram_used:57,score:96},{hw:"2× A100 80GB",tokens_sec:28,ctx:32768,latency_ms:36,vram_used:57,score:90},{hw:"2× RTX 4090",tokens_sec:14,ctx:16384,latency_ms:71,vram_used:57,score:82}]},
+
+  // 123B: Q8_0=134 GB fits; Q5_K_M=89 GB leaves 103 GB headroom; best 192GB flagship LLM
+  {id:"mistral_large2",name:"Mistral Large 2 (123B)",family:"Mistral",params:123,category:"LLM",developer:"Mistral AI",license:"Mistral Research License",released:"2024-07",contextLen:131072,hfUrl:"https://huggingface.co/mistralai/Mistral-Large-Instruct-2407",
+    arch:{layers:88,heads:8,headDim:128},
+    quants:[{format:"Q8_0",size:130,vramReq:134,speed:11,quality:100,ppl:4.7,bpw:8},{format:"Q6_K",size:100,vramReq:104,speed:14,quality:98,ppl:4.75,bpw:6.5},{format:"Q5_K_M",size:85,vramReq:89,speed:18,quality:96,ppl:4.8,bpw:5.5},{format:"Q4_K_M",size:73,vramReq:77,speed:24,quality:93,ppl:4.95,bpw:4.5},{format:"Q4_K_S",size:68,vramReq:72,speed:26,quality:92,ppl:5.0,bpw:4.25},{format:"Q3_K_M",size:55,vramReq:59,speed:35,quality:84,ppl:5.45,bpw:3.35},{format:"Q2_K",size:42,vramReq:46,speed:46,quality:72,ppl:6.2,bpw:2.63},{format:"IQ2_XXS",size:36,vramReq:40,speed:56,quality:68,ppl:6.9,bpw:2.3}],
+    benchmarks:{mmlu:84.0,hellaswag:90.5,arc:82.0,gsm8k:93.0,humaneval:92.0},
+    stressTests:[{hw:"H100 SXM",tokens_sec:35,ctx:32768,latency_ms:29,vram_used:77,score:97},{hw:"MI300X",tokens_sec:33,ctx:32768,latency_ms:30,vram_used:77,score:95},{hw:"2× A100 80GB",tokens_sec:22,ctx:16384,latency_ms:45,vram_used:77,score:88},{hw:"L40S 48GB",tokens_sec:11,ctx:8192,latency_ms:91,vram_used:36,score:80}]},
+
+  // 104B: Q8_0=114 GB fits; RAG-tuned, 128K context, strongest at retrieval tasks in class
+  {id:"command_r_plus_104b",name:"Command R+ 104B",family:"Command",params:104,category:"LLM",developer:"Cohere",license:"CC-BY-NC",released:"2024-04",contextLen:131072,hfUrl:"https://huggingface.co/CohereForAI/c4ai-command-r-plus",
+    arch:{layers:64,heads:8,headDim:128},
+    quants:[{format:"Q8_0",size:110,vramReq:114,speed:12,quality:100,ppl:5.0,bpw:8},{format:"Q6_K",size:85,vramReq:89,speed:16,quality:98,ppl:5.05,bpw:6.5},{format:"Q5_K_M",size:72,vramReq:76,speed:20,quality:96,ppl:5.1,bpw:5.5},{format:"Q4_K_M",size:62,vramReq:66,speed:26,quality:93,ppl:5.25,bpw:4.5},{format:"Q4_K_S",size:58,vramReq:62,speed:28,quality:92,ppl:5.3,bpw:4.25},{format:"Q3_K_M",size:46,vramReq:50,speed:38,quality:83,ppl:5.8,bpw:3.35},{format:"Q2_K",size:35,vramReq:39,speed:52,quality:71,ppl:6.7,bpw:2.63},{format:"IQ2_XXS",size:30,vramReq:34,speed:64,quality:66,ppl:7.4,bpw:2.3}],
+    benchmarks:{mmlu:75.7,hellaswag:88.0,arc:78.0,gsm8k:74.0,humaneval:66.0},
+    stressTests:[{hw:"H100 SXM",tokens_sec:38,ctx:32768,latency_ms:26,vram_used:66,score:96},{hw:"MI300X",tokens_sec:36,ctx:32768,latency_ms:28,vram_used:66,score:94},{hw:"2× A100 80GB",tokens_sec:24,ctx:16384,latency_ms:42,vram_used:66,score:88},{hw:"L40S 48GB",tokens_sec:18,ctx:16384,latency_ms:56,vram_used:48,score:85}]},
+
+  // 32B dense (Qwen3, Apr 2025): thinking mode, Q8_0=37 GB leaves massive headroom for KV/batching
+  {id:"qwen3_32b",name:"Qwen3 32B",family:"Qwen 3",params:32,category:"LLM",developer:"Alibaba",license:"Apache 2.0",released:"2025-04",contextLen:131072,hfUrl:"https://huggingface.co/Qwen/Qwen3-32B",
+    arch:{layers:64,heads:8,headDim:128},
+    quants:[{format:"BF16",size:64,vramReq:67,speed:22,quality:100,ppl:3.9,bpw:16},{format:"Q8_0",size:34,vramReq:37,speed:42,quality:99,ppl:3.95,bpw:8},{format:"Q6_K",size:26.5,vramReq:30,speed:54,quality:98,ppl:4.0,bpw:6.5},{format:"Q5_K_M",size:22.5,vramReq:26,speed:64,quality:96,ppl:4.05,bpw:5.5},{format:"Q4_K_M",size:19.5,vramReq:23,speed:78,quality:93,ppl:4.15,bpw:4.5},{format:"Q4_K_S",size:18,vramReq:21,speed:84,quality:92,ppl:4.2,bpw:4.25},{format:"IQ4_XS",size:18,vramReq:21,speed:82,quality:92,ppl:4.18,bpw:4.25},{format:"Q3_K_M",size:14.5,vramReq:17,speed:110,quality:83,ppl:4.6,bpw:3.35},{format:"Q2_K",size:11,vramReq:13,speed:148,quality:71,ppl:5.5,bpw:2.63},{format:"IQ2_XXS",size:9,vramReq:11,speed:175,quality:66,ppl:6.2,bpw:2.3}],
+    benchmarks:{mmlu:83.2,hellaswag:90.0,arc:82.0,gsm8k:94.0,humaneval:86.0},
+    stressTests:[{hw:"RTX 4090",tokens_sec:55,ctx:16384,latency_ms:18,vram_used:23,score:96},{hw:"H100 SXM",tokens_sec:118,ctx:32768,latency_ms:8,vram_used:23,score:100},{hw:"RTX 4070 Ti 16GB",tokens_sec:36,ctx:8192,latency_ms:28,vram_used:21,score:88},{hw:"M4 Max",tokens_sec:42,ctx:32768,latency_ms:24,vram_used:23,score:92}]},
+
+  // 32B general: BF16 fits in a single A100 80GB with 13 GB spare; up to 50+ concurrent at Q4
+  {id:"qwen25_32b",name:"Qwen2.5 32B Instruct",family:"Qwen",params:32,category:"LLM",developer:"Alibaba",license:"Apache 2.0",released:"2024-09",contextLen:131072,hfUrl:"https://huggingface.co/Qwen/Qwen2.5-32B-Instruct",
+    arch:{layers:64,heads:8,headDim:128},
+    quants:[{format:"BF16",size:64,vramReq:67,speed:20,quality:100,ppl:4.5,bpw:16},{format:"Q8_0",size:34,vramReq:37,speed:38,quality:99,ppl:4.55,bpw:8},{format:"Q6_K",size:26.5,vramReq:30,speed:50,quality:98,ppl:4.6,bpw:6.5},{format:"Q5_K_M",size:22.5,vramReq:26,speed:60,quality:96,ppl:4.7,bpw:5.5},{format:"Q4_K_M",size:19.5,vramReq:22,speed:72,quality:93,ppl:4.8,bpw:4.5},{format:"Q4_K_S",size:18,vramReq:21,speed:78,quality:92,ppl:4.85,bpw:4.25},{format:"IQ4_XS",size:18,vramReq:21,speed:76,quality:92,ppl:4.82,bpw:4.25},{format:"Q3_K_M",size:14.5,vramReq:17,speed:100,quality:83,ppl:5.3,bpw:3.35},{format:"Q2_K",size:11,vramReq:13,speed:136,quality:71,ppl:6.2,bpw:2.63},{format:"IQ2_XXS",size:9,vramReq:11,speed:162,quality:66,ppl:7.0,bpw:2.3}],
+    benchmarks:{mmlu:83.5,hellaswag:89.0,arc:83.0,gsm8k:91.0,humaneval:79.0},
+    stressTests:[{hw:"RTX 4090",tokens_sec:52,ctx:16384,latency_ms:19,vram_used:22,score:95},{hw:"H100 SXM",tokens_sec:112,ctx:32768,latency_ms:9,vram_used:22,score:100},{hw:"M4 Max",tokens_sec:40,ctx:32768,latency_ms:25,vram_used:22,score:92},{hw:"Arc B580",tokens_sec:22,ctx:8192,latency_ms:45,vram_used:20,score:78}]},
+
+  // NVIDIA Nemotron 70B: top-ranked 70B on Arena; BF16 (148 GB) fits 192 GB with 44 GB KV headroom
+  {id:"nemotron_70b",name:"Llama-3.1-Nemotron-70B-Instruct",family:"Nemotron",params:70,category:"LLM",developer:"NVIDIA",license:"Llama Community",released:"2024-10",contextLen:131072,hfUrl:"https://huggingface.co/nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
+    arch:{layers:80,heads:8,headDim:128},
+    quants:[{format:"BF16",size:140,vramReq:148,speed:7,quality:100,ppl:5.5,bpw:16},{format:"Q8_0",size:75,vramReq:80,speed:12,quality:99,ppl:5.55,bpw:8},{format:"Q6_K",size:58,vramReq:62,speed:16,quality:98,ppl:5.6,bpw:6.5},{format:"Q5_K_M",size:50,vramReq:54,speed:19,quality:96,ppl:5.65,bpw:5.5},{format:"Q4_K_M",size:42.5,vramReq:46,speed:24,quality:93,ppl:5.75,bpw:4.5},{format:"Q4_K_S",size:40,vramReq:44,speed:27,quality:92,ppl:5.8,bpw:4.25},{format:"IQ4_XS",size:40,vramReq:44,speed:26,quality:92,ppl:5.78,bpw:4.25},{format:"Q3_K_M",size:31,vramReq:34,speed:34,quality:84,ppl:6.2,bpw:3.35},{format:"Q2_K",size:23,vramReq:26,speed:44,quality:74,ppl:7.0,bpw:2.63},{format:"IQ2_XXS",size:19.5,vramReq:22,speed:54,quality:70,ppl:7.6,bpw:2.3}],
+    benchmarks:{mmlu:85.1,hellaswag:91.0,arc:83.5,gsm8k:95.0,humaneval:84.0},
+    stressTests:[{hw:"H100 SXM",tokens_sec:56,ctx:32768,latency_ms:18,vram_used:80,score:100},{hw:"MI300X",tokens_sec:53,ctx:32768,latency_ms:19,vram_used:80,score:98},{hw:"RTX 4090",tokens_sec:18,ctx:8192,latency_ms:56,vram_used:44,score:92},{hw:"M4 Ultra",tokens_sec:22,ctx:32768,latency_ms:45,vram_used:50,score:91}]},
 ];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
