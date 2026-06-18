@@ -1609,7 +1609,7 @@ function ModelCard({model,totalVram,selectedModel,onSelect,compareA,compareB,onC
           <span style={{fontSize:9,color:"var(--text3)"}}>Ctx: <span style={{color:"var(--accent2)",fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>{fmtCtx(model.contextLen)}</span></span>
           <span style={{fontSize:9,color:"var(--text3)"}}>Family: <span style={{color:"var(--text2)",fontWeight:600}}>{model.family}</span></span>
           {model.quants.length>0&&(()=>{const maxSpd=model.quants.reduce((x,q)=>Math.max(x,q.speed||0),0);return maxSpd>0?<span style={{fontSize:9,background:"rgba(0,229,160,0.1)",color:"var(--green)",padding:"2px 7px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>⚡ {maxSpd}+ t/s</span>:null;})()}
-          {model.quants.length>0&&(()=>{const minVr=Math.min(...model.quants.map(q=>q.vramReq).filter(v=>v>0));return minVr?<span style={{fontSize:9,background:"rgba(110,80,255,0.1)",color:"var(--accent2)",padding:"2px 7px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>min {minVr}GB</span>:null;})()}
+          {model.quants.length>0&&(()=>{const arr=model.quants.map(q=>q.vramReq).filter(v=>v>0);if(!arr.length)return null;const minVr=Math.min(...arr);return minVr&&isFinite(minVr)?<span style={{fontSize:9,background:"rgba(110,80,255,0.1)",color:"var(--accent2)",padding:"2px 7px",borderRadius:5,fontWeight:700,fontFamily:"'JetBrains Mono', monospace"}}>min {minVr}GB</span>:null;})()}
           <a href={safeUrl(model.hfUrl)} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:9,color:"var(--accent2)",textDecoration:"none",padding:"2px 7px",borderRadius:4,background:"rgba(110,80,255,0.1)"}}>↗ HuggingFace</a>
           {live&&fmtDL(live.downloads_30d)&&<span title="Monthly downloads (HuggingFace)" style={{fontSize:9,color:"var(--green)",padding:"2px 7px",borderRadius:4,background:"rgba(0,229,160,0.08)",fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>↓ {fmtDL(live.downloads_30d)}/mo</span>}
           {live?.likes&&<span title="HuggingFace likes" style={{fontSize:9,color:"var(--amber)",padding:"2px 7px",borderRadius:4,background:"rgba(255,183,77,0.1)",fontWeight:700}}>♥ {fmtDL(live.likes)}</span>}
@@ -1768,7 +1768,7 @@ function ModelCompare({a,b}){
     {l:"ARC",ka:"benchmarks.arc",fmt:v=>`${v}%`,hi:true},
     {l:"GSM8K",ka:"benchmarks.gsm8k",fmt:v=>`${v}%`,hi:true},
     {l:"HumanEval",ka:"benchmarks.humaneval",fmt:v=>`${v}%`,hi:true},
-    {l:"Best Quant Speed",ka:null,fmt:(v,m)=>`${m.quants.reduce((x,q)=>Math.max(x,q.speed),0)}t/s`,hi:true},
+    {l:"Best Quant Speed",ka:null,fmt:(v,m)=>`${m.quants.reduce((x,q)=>Math.max(x,q.speed||0),0)}t/s`,hi:true},
     {l:"Min VRAM",ka:null,fmt:(v,m)=>{const a=m.quants.map(q=>q.vramReq).filter(x=>x>0);return a.length?`${Math.min(...a)} GB`:"N/A";},hi:false},
   ];
   const getVal=(m,key)=>{if(!key)return null;const p=key.split(".");return p.reduce((o,k)=>o?.[k],m)??null;};
@@ -1838,7 +1838,9 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
 
     let modelVram,modelLabel,baseTps;
     if(selectedModel){
-      const q=selectedModel.quants[0];
+      // Pick the best-fitting quant for the actual build VRAM; fall back to BF16 if nothing fits
+      const fitsQ=selectedModel.quants.filter(q=>q.vramReq<=totalVram);
+      const q=fitsQ.length?fitsQ[0]:selectedModel.quants[0];
       modelVram=q?.vramReq||selectedModel.params*2;
       modelLabel=selectedModel.name;
       const cat=selectedModel.params<=9?"llama8b":"llama70b";
@@ -2387,7 +2389,7 @@ function TCOCalculator({selectedMap}){
   const togetherTokPerM=0.88;// Together AI Llama-3.3-70B $/M tokens (input+output avg)
   const togetherMonthlyTokens=(hwTps*3600*gpuHoursDay*30)/1e6; // equivalent usage
   const togetherMonthlyCostINR=togetherTokPerM*togetherMonthlyTokens*rate;
-  const e2eA100INR=Math.round(99.78*cloudHrs*rate); // E2E Networks A100 ₹99.78/hr reserved rate
+  const e2eA100INR=Math.round(99.78*cloudHrs); // E2E Networks A100 ₹99.78/hr reserved rate — already in INR, no conversion
 
   // E2E break-even
   const breakEvenMonths=Math.round(capex/Math.max(e2eA100INR-monthlyOpex,1));
