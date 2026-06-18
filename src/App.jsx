@@ -338,6 +338,500 @@ const SEGMENTS = ["All","datacenter","workstation","consumer","edge"];
 const SEG_LABEL = {datacenter:"Data Center",workstation:"Workstation",consumer:"Consumer",edge:"Edge"};
 const CTX_PRESETS = [512,1024,2048,4096,8192,16384,32768,65536,131072];
 
+// ─── RUNPOD GPU MAPPING ───────────────────────────────────────────────────────
+// Maps our hardware IDs to RunPod GPU display names for deep-link URL construction
+const RUNPOD_GPU_MAP = {
+  h100_sxm:"NVIDIA H100 80GB HBM3",
+  h100_pcie:"NVIDIA H100 PCIe",
+  h200_sxm:"NVIDIA H200 SXM",
+  gb200:"NVIDIA B200",
+  a100_80gb:"NVIDIA A100 80GB PCIe",
+  a100_40gb:"NVIDIA A100-SXM4-40GB",
+  rtx4090:"NVIDIA GeForce RTX 4090",
+  rtx3090:"NVIDIA GeForce RTX 3090",
+  rtx4080:"NVIDIA GeForce RTX 4080 SUPER",
+  rtx4070ti:"NVIDIA GeForce RTX 4070 Ti",
+  rtx4070:"NVIDIA GeForce RTX 4070",
+  a6000:"NVIDIA RTX A6000",
+  a40:"NVIDIA A40",
+  l40s:"NVIDIA L40S",
+  l40:"NVIDIA L40",
+  rtx6000_ada:"NVIDIA RTX 6000 Ada",
+  a30:"NVIDIA A30",
+  v100_sxm:"Tesla V100-SXM2-32GB",
+  v100_pcie:"Tesla V100-PCIE-16GB",
+  // Apple / AMD / Intel not available on RunPod
+};
+
+// Derive a best-fit Ollama model tag from a model id
+function toOllamaTag(modelId, quantFormat){
+  const q=(quantFormat||"Q4_K_M").toLowerCase().replace(/_/g,"-").replace("bf16","fp16");
+  const MAP={
+    llama3_70b:`llama3.3:70b-instruct-${q}`,
+    llama3_8b:`llama3.2:8b-instruct-${q}`,
+    llama32_90b_vision:`llama3.2:90b-vision-instruct`,
+    mistral_7b:`mistral:7b-instruct-${q}`,
+    mistral_nemo:`mistral-nemo:12b-instruct-${q}`,
+    mistral_large2:`mistral-large:123b-instruct-${q}`,
+    deepseek_r1_70b:`deepseek-r1:70b-${q}`,
+    deepseek_r1_7b:`deepseek-r1:7b-${q}`,
+    deepseek_v3:`deepseek-v3:671b-${q}`,
+    qwen2_72b:`qwen2.5:72b-instruct-${q}`,
+    qwen2_7b:`qwen2.5:7b-instruct-${q}`,
+    qwen25_32b:`qwen2.5:32b-instruct-${q}`,
+    qwen25_coder_32b:`qwen2.5-coder:32b-instruct-${q}`,
+    qwen3_32b:`qwen3:32b-${q}`,
+    phi4_14b:`phi4:14b-${q}`,
+    phi4_mini:`phi4-mini:3.8b-instruct-${q}`,
+    gemma2_9b:`gemma2:9b-instruct-${q}`,
+    gemma2_27b:`gemma2:27b-instruct-${q}`,
+    gemma3_12b:`gemma3:12b-instruct-${q}`,
+    gemma3_27b:`gemma3:27b-instruct-${q}`,
+    codestral:`codestral:22b-${q}`,
+    mixtral_8x7b:`mixtral:8x7b-instruct-v0.1-${q}`,
+    mixtral_8x22b:`mixtral:8x22b-instruct-v0.1-${q}`,
+  };
+  return MAP[modelId]||`${modelId.replace(/_/g,"-")}:latest`;
+}
+
+// ─── STRESS TEST SCRIPT BUILDERS (pure template substitution, no AI) ──────────
+
+function buildOllamaScript(p){
+  return`#!/bin/bash
+# ============================================================
+# Ollama Load Test — ${p.modelName}
+# Hardware : ${p.gpuName} ×${p.gpuCount} (${p.vramGb} GB VRAM, ${p.tdpW} W)
+# Quant    : ${p.quantFormat}  |  Context: ${p.contextSize} tokens
+# Generated: LocalAI Deploy (template substitution, no AI)
+# ============================================================
+set -e
+
+# ── Variables ────────────────────────────────────────────────
+MODEL="${p.ollamaTag}"
+CONCURRENCY=${p.concurrency}
+TOTAL_REQUESTS=${p.totalRequests}
+CONTEXT_SIZE=${p.contextSize}
+HOST="http://localhost:11434"
+RESULTS_FILE="results_ollama_${p.modelId}.txt"
+
+PROMPT="Explain the architecture of transformer models and how attention mechanisms work in detail."
+# Approx ${p.concurrency * p.contextSize} tokens of combined KV footprint at peak concurrency
+
+# ── Install Ollama ───────────────────────────────────────────
+if ! command -v ollama &>/dev/null; then
+  echo "[1/4] Installing Ollama..."
+  curl -fsSL https://ollama.com/install.sh | sh
+fi
+
+# ── Pull model ───────────────────────────────────────────────
+echo "[2/4] Pulling $MODEL ..."
+ollama pull "$MODEL"
+
+# ── Start server ─────────────────────────────────────────────
+echo "[3/4] Starting Ollama (parallel slots = $CONCURRENCY) ..."
+pkill -f "ollama serve" 2>/dev/null || true
+OLLAMA_NUM_PARALLEL=$CONCURRENCY \\
+  OLLAMA_MAX_LOADED_MODELS=1 \\
+  CUDA_VISIBLE_DEVICES=${Array.from({length:p.gpuCount},(_,i)=>i).join(",")} \\
+  ollama serve &
+SERVER_PID=$!
+sleep 6
+
+# Warmup
+curl -sf -X POST $HOST/api/generate \\
+  -H 'Content-Type: application/json' \\
+  -d '{"model":"'$MODEL'","prompt":"ping","stream":false}' >/dev/null
+echo "Warmup done."
+
+# ── Load test ────────────────────────────────────────────────
+echo "[4/4] Running $TOTAL_REQUESTS requests at $CONCURRENCY concurrency..."
+echo "Results: $RESULTS_FILE"
+> "$RESULTS_FILE"
+
+run_request(){
+  local idx=$1
+  local t0; t0=$(date +%s%3N)
+  local resp; resp=$(curl -sf -X POST $HOST/api/generate \\
+    -H 'Content-Type: application/json' \\
+    -d '{"model":"'$MODEL'","prompt":"'"$PROMPT"'","options":{"num_ctx":'$CONTEXT_SIZE'},"stream":false}')
+  local t1; t1=$(date +%s%3N)
+  local elapsed=$(( t1 - t0 ))
+  local eval_count; eval_count=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_count',0))" 2>/dev/null || echo 0)
+  local eval_ns; eval_ns=$(echo "$resp" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('eval_duration',1))" 2>/dev/null || echo 1)
+  local tps; tps=$(python3 -c "print(round($eval_count / max($eval_ns * 1e-9, 0.001), 2))" 2>/dev/null || echo 0)
+  echo "req=$idx latency=${elapsed}ms tokens=$eval_count tps=$tps" | tee -a "$RESULTS_FILE"
+}
+
+export -f run_request
+export MODEL HOST PROMPT CONTEXT_SIZE RESULTS_FILE
+
+# Use GNU parallel if available, otherwise sequential
+if command -v parallel &>/dev/null; then
+  seq 1 $TOTAL_REQUESTS | parallel -j $CONCURRENCY run_request
+else
+  for i in $(seq 1 $TOTAL_REQUESTS); do run_request $i; done
+fi
+
+# ── Summary ──────────────────────────────────────────────────
+echo ""
+echo "=== Summary ==="
+python3 - "$RESULTS_FILE" <<'PYEOF'
+import sys, re, statistics
+latencies, tps_list = [], []
+for line in open(sys.argv[1]):
+    m = re.search(r'latency=(\\d+)ms.*tps=([\\d.]+)', line)
+    if m:
+        latencies.append(int(m.group(1)))
+        tps_list.append(float(m.group(2)))
+if latencies:
+    print(f"Requests     : {len(latencies)}")
+    print(f"Avg latency  : {statistics.mean(latencies):.0f} ms")
+    print(f"p50 latency  : {statistics.median(latencies):.0f} ms")
+    print(f"p95 latency  : {sorted(latencies)[int(len(latencies)*0.95)]:.0f} ms")
+    print(f"Avg TPS/req  : {statistics.mean(tps_list):.1f} t/s")
+    print(f"Total TPS    : {sum(tps_list):.1f} t/s (across all concurrent slots)")
+PYEOF
+
+kill $SERVER_PID 2>/dev/null || true
+echo "Done. Results saved to $RESULTS_FILE"
+`;
+}
+
+function buildLlamaCppScript(p){
+  // Estimate GPU layers: assume ~1 MB per layer per B of params at Q4_K_M; cap at total layers
+  const mbPerLayer=Math.round(p.paramsBillion*0.8);
+  const gpuLayers=Math.min(Math.floor((p.vramGb*1024*0.85)/Math.max(mbPerLayer,1)),200);
+  return`#!/bin/bash
+# ============================================================
+# llama.cpp Load Test — ${p.modelName}
+# Hardware : ${p.gpuName} ×${p.gpuCount} (${p.vramGb} GB VRAM)
+# Quant    : ${p.quantFormat}  |  GPU layers: ${gpuLayers}  |  Context: ${p.contextSize}
+# Generated: LocalAI Deploy (template substitution, no AI)
+# ============================================================
+set -e
+
+# ── Variables ────────────────────────────────────────────────
+HF_MODEL="${p.hfModelId}"        # HuggingFace repo to download GGUF from
+QUANT="${p.quantFormat}"
+MODEL_FILE="${p.modelId}-${p.quantFormat}.gguf"
+GPU_LAYERS=${gpuLayers}          # layers to offload to GPU
+CTX_SIZE=${p.contextSize}
+PARALLEL=${p.concurrency}        # parallel decode slots
+PORT=8080
+TOTAL_REQUESTS=${p.totalRequests}
+CONCURRENCY=${p.concurrency}
+RESULTS_FILE="results_llamacpp_${p.modelId}.txt"
+
+# ── Install dependencies ──────────────────────────────────────
+echo "[1/5] Installing build tools..."
+sudo apt-get update -qq && sudo apt-get install -y -qq build-essential cmake git curl
+
+# ── Clone & build llama.cpp ───────────────────────────────────
+echo "[2/5] Building llama.cpp with CUDA support..."
+if [ ! -d "llama.cpp" ]; then
+  git clone https://github.com/ggerganov/llama.cpp --depth 1
+fi
+cd llama.cpp
+cmake -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \\
+  -DCMAKE_CUDA_ARCHITECTURES=all-major
+cmake --build build --target llama-server -j$(nproc)
+cd ..
+
+# ── Download model ────────────────────────────────────────────
+echo "[3/5] Downloading $MODEL_FILE ..."
+if [ ! -f "$MODEL_FILE" ]; then
+  pip install huggingface_hub -q
+  python3 -c "
+from huggingface_hub import hf_hub_download, list_repo_files
+import os, re
+repo='$HF_MODEL'
+files=list(list_repo_files(repo))
+gguf=[f for f in files if '$QUANT' in f.upper() and f.endswith('.gguf')]
+if not gguf:
+    gguf=[f for f in files if 'Q4_K_M' in f.upper() and f.endswith('.gguf')]
+if not gguf:
+    gguf=[f for f in files if f.endswith('.gguf')][:1]
+f=gguf[0]
+print(f'Downloading {f}')
+hf_hub_download(repo_id=repo, filename=f, local_dir='.')
+import shutil; shutil.move(f, '$MODEL_FILE') if f!='$MODEL_FILE' else None
+"
+fi
+
+# ── Start llama-server ────────────────────────────────────────
+echo "[4/5] Starting llama-server on port $PORT ..."
+pkill -f llama-server 2>/dev/null || true
+./llama.cpp/build/bin/llama-server \\
+  --model "$MODEL_FILE" \\
+  --n-gpu-layers $GPU_LAYERS \\
+  --ctx-size $CTX_SIZE \\
+  --parallel $PARALLEL \\
+  --port $PORT \\
+  --host 0.0.0.0 &
+SERVER_PID=$!
+sleep 10
+
+# Warmup
+curl -sf http://localhost:$PORT/health >/dev/null && echo "Server healthy."
+
+# ── Load test with Apache Bench ───────────────────────────────
+echo "[5/5] Running load test ($TOTAL_REQUESTS reqs, $CONCURRENCY concurrent)..."
+PAYLOAD='{"prompt":"Explain how neural networks learn through backpropagation and gradient descent. Include examples.","n_predict":256}'
+echo "$PAYLOAD" > /tmp/llama_payload.json
+
+ab -n $TOTAL_REQUESTS -c $CONCURRENCY \\
+   -T 'application/json' \\
+   -p /tmp/llama_payload.json \\
+   -s 120 \\
+   http://localhost:$PORT/completion | tee "$RESULTS_FILE"
+
+kill $SERVER_PID 2>/dev/null || true
+echo "Results saved to $RESULTS_FILE"
+`;
+}
+
+function buildVllmScript(p){
+  return`#!/bin/bash
+# ============================================================
+# vLLM Load Test — ${p.modelName}
+# Hardware : ${p.gpuName} ×${p.gpuCount} (${p.vramGb} GB VRAM)
+# Tensor parallel: ${p.gpuCount}  |  Context: ${p.contextSize}
+# Generated: LocalAI Deploy (template substitution, no AI)
+# ============================================================
+set -e
+
+# ── Variables ────────────────────────────────────────────────
+HF_MODEL="${p.hfModelId}"
+TENSOR_PARALLEL=${p.gpuCount}
+MAX_MODEL_LEN=${p.contextSize}
+PORT=8000
+CONCURRENCY=${p.concurrency}
+TOTAL_REQUESTS=${p.totalRequests}
+RESULTS_FILE="results_vllm_${p.modelId}.txt"
+
+# ── Install vLLM ─────────────────────────────────────────────
+echo "[1/4] Installing vLLM + locust..."
+pip install vllm locust -q
+
+# ── (Optional) HuggingFace login for gated models ────────────
+# Uncomment and set your token if the model requires authentication:
+# huggingface-cli login --token YOUR_HF_TOKEN_HERE
+
+# ── Start vLLM server ─────────────────────────────────────────
+echo "[2/4] Launching vLLM OpenAI-compatible server..."
+pkill -f "vllm.entrypoints" 2>/dev/null || true
+python3 -m vllm.entrypoints.openai.api_server \\
+  --model "$HF_MODEL" \\
+  --tensor-parallel-size $TENSOR_PARALLEL \\
+  --max-model-len $MAX_MODEL_LEN \\
+  --gpu-memory-utilization 0.90 \\
+  --port $PORT \\
+  --host 0.0.0.0 \\
+  --served-model-name "${p.modelId}" &
+SERVER_PID=$!
+
+echo "Waiting for server to be ready..."
+until curl -sf http://localhost:$PORT/health >/dev/null 2>&1; do sleep 5; echo -n "."; done
+echo " Ready!"
+
+# ── Write locust file ─────────────────────────────────────────
+echo "[3/4] Creating locust test file..."
+cat > locustfile_${p.modelId}.py <<'LOCUST'
+from locust import HttpUser, task, between
+import json, random
+
+PROMPTS = [
+    "Explain quantum entanglement and its applications in computing.",
+    "Write a Python function to implement binary search with error handling.",
+    "Describe the differences between supervised, unsupervised, and reinforcement learning.",
+    "What are the key principles of transformer architecture in deep learning?",
+    "Explain the CAP theorem and its implications for distributed systems.",
+]
+
+class LLMUser(HttpUser):
+    wait_time = between(0.1, 0.5)
+
+    @task
+    def chat_completion(self):
+        payload = {
+            "model": "${p.modelId}",
+            "messages": [{"role": "user", "content": random.choice(PROMPTS)}],
+            "max_tokens": 256,
+            "temperature": 0.7,
+            "stream": False,
+        }
+        with self.client.post(
+            "/v1/chat/completions",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            catch_response=True,
+            timeout=120,
+        ) as resp:
+            if resp.status_code == 200:
+                data = resp.json()
+                tokens = data.get("usage", {}).get("completion_tokens", 0)
+                resp.success()
+            else:
+                resp.failure(f"HTTP {resp.status_code}: {resp.text[:200]}")
+LOCUST
+
+# ── Run locust headless ───────────────────────────────────────
+echo "[4/4] Running locust: $TOTAL_REQUESTS reqs at $CONCURRENCY users..."
+locust \\
+  -f locustfile_${p.modelId}.py \\
+  --headless \\
+  --host http://localhost:$PORT \\
+  --users $CONCURRENCY \\
+  --spawn-rate $CONCURRENCY \\
+  --run-time 60s \\
+  --csv "$RESULTS_FILE" \\
+  --html results_vllm_${p.modelId}.html
+
+echo "Done. CSV: ${p.modelId}_stats.csv  |  HTML report: results_vllm_${p.modelId}.html"
+kill $SERVER_PID 2>/dev/null || true
+`;
+}
+
+function buildPythonScript(p){
+  return`#!/usr/bin/env python3
+"""
+Async Load Test — ${p.modelName}
+Hardware : ${p.gpuName} x${p.gpuCount} (${p.vramGb} GB VRAM)
+Quant    : ${p.quantFormat}  |  Context: ${p.contextSize} tokens
+Generated: LocalAI Deploy (template substitution, no AI)
+
+Works against:
+  Ollama  → BASE_URL = "http://localhost:11434"  BACKEND = "ollama"
+  vLLM    → BASE_URL = "http://localhost:8000"   BACKEND = "vllm"
+  llama.cpp → BASE_URL = "http://localhost:8080" BACKEND = "llamacpp"
+"""
+import asyncio, aiohttp, time, json, statistics, argparse, sys
+
+# ── Config (pre-filled from your build) ──────────────────────
+BASE_URL      = "http://localhost:11434"   # change to 8000 for vLLM, 8080 for llama.cpp
+BACKEND       = "ollama"                   # "ollama" | "vllm" | "llamacpp"
+MODEL         = "${p.ollamaTag}"           # ollama tag, or HF model ID for vLLM
+CONCURRENCY   = ${p.concurrency}           # concurrent workers
+TOTAL         = ${p.totalRequests}         # total requests to send
+MAX_TOKENS    = 256                        # max tokens per response
+CONTEXT_SIZE  = ${p.contextSize}           # context window
+TIMEOUT_S     = 180                        # per-request timeout
+
+PROMPTS = [
+    "Explain the differences between CNN, RNN, and Transformer architectures.",
+    "Write a complete Python implementation of a REST API with authentication.",
+    "Describe how gradient descent and backpropagation work together in training neural networks.",
+    "What are the trade-offs between SQL and NoSQL databases for large-scale applications?",
+    "Explain the concept of attention mechanisms in transformer models with examples.",
+    "How does retrieval-augmented generation (RAG) improve LLM accuracy?",
+    "Implement a binary search tree in Python with insert, search, and delete operations.",
+    "Compare microservices vs monolithic architecture for a high-traffic web application.",
+]
+
+# ── Endpoint builder ──────────────────────────────────────────
+def build_request(prompt: str, idx: int) -> tuple[str, dict]:
+    if BACKEND == "ollama":
+        return f"{BASE_URL}/api/generate", {
+            "model": MODEL,
+            "prompt": prompt,
+            "options": {"num_ctx": CONTEXT_SIZE, "num_predict": MAX_TOKENS},
+            "stream": False,
+        }
+    elif BACKEND == "vllm":
+        return f"{BASE_URL}/v1/chat/completions", {
+            "model": MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": MAX_TOKENS,
+            "temperature": 0.7,
+            "stream": False,
+        }
+    else:  # llama.cpp
+        return f"{BASE_URL}/completion", {
+            "prompt": prompt,
+            "n_predict": MAX_TOKENS,
+            "temperature": 0.7,
+        }
+
+# ── Extract token count from response ─────────────────────────
+def extract_tokens(data: dict) -> int:
+    if BACKEND == "ollama":
+        return data.get("eval_count", 0)
+    elif BACKEND == "vllm":
+        return data.get("usage", {}).get("completion_tokens", 0)
+    else:
+        return data.get("tokens_predicted", 0)
+
+# ── Single request worker ─────────────────────────────────────
+async def send_request(session: aiohttp.ClientSession, idx: int, results: list):
+    prompt = PROMPTS[idx % len(PROMPTS)]
+    url, payload = build_request(prompt, idx)
+    t0 = time.perf_counter()
+    try:
+        async with session.post(url, json=payload,
+                                timeout=aiohttp.ClientTimeout(total=TIMEOUT_S)) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                results.append({"ok": False, "error": f"HTTP {resp.status}: {text[:100]}", "idx": idx})
+                return
+            data = await resp.json()
+            elapsed = time.perf_counter() - t0
+            tokens = extract_tokens(data)
+            tps = tokens / max(elapsed, 0.001)
+            results.append({"ok": True, "latency_s": elapsed, "tokens": tokens, "tps": tps, "idx": idx})
+            print(f"  req {idx:3d}: {elapsed*1000:.0f}ms | {tokens} tok | {tps:.1f} t/s")
+    except asyncio.TimeoutError:
+        results.append({"ok": False, "error": "timeout", "idx": idx, "latency_s": TIMEOUT_S})
+    except Exception as e:
+        results.append({"ok": False, "error": str(e), "idx": idx})
+
+# ── Semaphore-limited dispatcher ──────────────────────────────
+async def run_load_test():
+    sem = asyncio.Semaphore(CONCURRENCY)
+    results = []
+
+    async def bounded(idx):
+        async with sem:
+            await send_request(session, idx, results)
+
+    connector = aiohttp.TCPConnector(limit=CONCURRENCY + 4)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        print(f"\\n=== Load test: {TOTAL} requests | {CONCURRENCY} concurrent | {BACKEND} | {MODEL} ===")
+        t_start = time.perf_counter()
+        await asyncio.gather(*[bounded(i) for i in range(TOTAL)])
+        elapsed_total = time.perf_counter() - t_start
+
+    ok   = [r for r in results if r.get("ok")]
+    fail = [r for r in results if not r.get("ok")]
+    if ok:
+        lats   = sorted(r["latency_s"] * 1000 for r in ok)
+        tps_l  = [r["tps"] for r in ok]
+        total_tok = sum(r["tokens"] for r in ok)
+        print(f"\\n=== Results ===")
+        print(f"Total requests : {len(results)} ({len(ok)} ok, {len(fail)} failed)")
+        print(f"Total time     : {elapsed_total:.1f}s")
+        print(f"Throughput     : {len(ok)/elapsed_total:.2f} req/s")
+        print(f"Total tokens   : {total_tok}  ({total_tok/elapsed_total:.1f} tok/s aggregate)")
+        print(f"Latency avg    : {statistics.mean(lats):.0f} ms")
+        print(f"Latency p50    : {lats[len(lats)//2]:.0f} ms")
+        print(f"Latency p95    : {lats[int(len(lats)*0.95)]:.0f} ms")
+        print(f"Latency p99    : {lats[int(len(lats)*0.99)]:.0f} ms")
+        print(f"Avg TPS/slot   : {statistics.mean(tps_l):.1f} t/s")
+    if fail:
+        print(f"\\nFailed requests ({len(fail)}):")
+        for r in fail[:5]:
+            print(f"  req {r['idx']}: {r.get('error','unknown')}")
+    return results
+
+if __name__ == "__main__":
+    try:
+        import aiohttp
+    except ImportError:
+        print("Installing aiohttp..."); import subprocess; subprocess.run([sys.executable,"-m","pip","install","aiohttp","-q"])
+        import aiohttp
+    asyncio.run(run_load_test())
+`;
+}
+
 // ─── GLOBAL CSS ──────────────────────────────────────────────────────────────
 const makeCSS = (dark = true) => `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
@@ -1550,6 +2044,217 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
   );
 }
 
+// ─── STRESS TEST DEPLOYER ─────────────────────────────────────────────────────
+function StressTestDeployer({selectedMap,selectedModel}){
+  const [scriptType,setScriptType]=useState("ollama");
+  const [concurrency,setConcurrency]=useState(25);
+  const [totalRequests,setTotalRequests]=useState(100);
+  const [copied,setCopied]=useState(false);
+
+  // Derive build info from selectedMap
+  const hwEntries=useMemo(()=>
+    Object.entries(selectedMap||{}).map(([id,qty])=>{
+      const h=ALL_HW.find(x=>x.id===id);return h?{h,qty}:null;
+    }).filter(Boolean)
+  ,[selectedMap]);
+  const primaryEntry=hwEntries[0];
+  const hw=primaryEntry?.h;
+  const gpuCount=hwEntries.reduce((a,{qty})=>a+qty,0)||1;
+  const vramGb=hwEntries.reduce((a,{h,qty})=>a+h.vram*qty,0)||(hw?.vram||80);
+  const tdpW=hwEntries.reduce((a,{h,qty})=>a+h.tdp*qty,0)||(hw?.tdp||400);
+
+  const hasHw=hwEntries.length>0;
+  const hasModel=!!selectedModel;
+
+  // Choose best fitting quant
+  const bestQuant=useMemo(()=>{
+    if(!selectedModel)return{format:"Q4_K_M"};
+    const fits=selectedModel.quants.filter(q=>q.vramReq<=vramGb);
+    return fits.length?fits[0]:selectedModel.quants[selectedModel.quants.length-1];
+  },[selectedModel,vramGb]);
+
+  const params=useMemo(()=>({
+    gpuName:hw?.shortName||"GPU",
+    gpuCount,
+    vramGb,
+    tdpW,
+    modelName:selectedModel?.name||"",
+    modelId:selectedModel?.id||"model",
+    hfModelId:selectedModel?.hfUrl?.replace("https://huggingface.co/","")||"",
+    ollamaTag:selectedModel?toOllamaTag(selectedModel.id,bestQuant.format):"",
+    paramsBillion:selectedModel?.params||7,
+    contextSize:Math.min(selectedModel?.contextLen||32768,32768),
+    quantFormat:bestQuant.format,
+    concurrency,
+    totalRequests,
+  }),[hw,gpuCount,vramGb,tdpW,selectedModel,bestQuant,concurrency,totalRequests]);
+
+  const script=useMemo(()=>{
+    if(!hasModel||!hasHw)return"# Select a model and add hardware to your build first.";
+    if(scriptType==="ollama") return buildOllamaScript(params);
+    if(scriptType==="llamacpp") return buildLlamaCppScript(params);
+    if(scriptType==="vllm") return buildVllmScript(params);
+    return buildPythonScript(params);
+  },[scriptType,params,hasModel,hasHw]);
+
+  const ext=scriptType==="python"?".py":".sh";
+  const filename=`stress-test-${params.modelId}-${scriptType}${ext}`;
+
+  const runpodGpuType=hw?RUNPOD_GPU_MAP[hw.id]:null;
+  const runpodUrl=runpodGpuType
+    ?`https://www.runpod.io/console/gpu-secure-cloud?gpuDisplayName=${encodeURIComponent(runpodGpuType)}&gpuCount=${gpuCount}`
+    :"https://www.runpod.io/console/gpu-secure-cloud";
+  const onRunPod=hw&&!RUNPOD_GPU_MAP[hw.id];
+
+  const doCopy=()=>{
+    navigator.clipboard.writeText(script).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+  const doDownload=()=>{
+    const blob=new Blob([script],{type:"text/plain"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download=filename;
+    a.click();
+  };
+
+  const TABS=[
+    {key:"ollama",label:"Ollama",icon:"🦙",desc:"ollama serve + parallel slots"},
+    {key:"llamacpp",label:"llama.cpp",icon:"⚡",desc:"llama-server + Apache Bench"},
+    {key:"vllm",label:"vLLM",icon:"🚀",desc:"OpenAI API server + locust"},
+    {key:"python",label:"Python asyncio",icon:"🐍",desc:"aiohttp concurrent loop"},
+  ];
+
+  return(
+    <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,padding:"20px 24px",marginBottom:20}}>
+      {/* Header */}
+      <div style={{fontWeight:700,fontSize:16,color:"var(--text)",marginBottom:4}}>🚀 Deploy & Stress Test</div>
+      <div style={{fontSize:11,color:"var(--text3)",marginBottom:14}}>Pre-built scripts with parameters auto-filled from your build — no AI, pure template substitution. Copy, download, or deploy directly on RunPod.</div>
+
+      {/* Status banner */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+        <div style={{padding:"5px 12px",borderRadius:7,fontSize:11,fontWeight:600,
+          background:hasHw?"rgba(0,229,160,0.08)":"rgba(255,184,48,0.08)",
+          border:`1px solid ${hasHw?"rgba(0,229,160,0.25)":"rgba(255,184,48,0.25)"}`,
+          color:hasHw?"var(--green)":"var(--amber)"}}>
+          {hasHw?`⚡ ${hwEntries.map(({h,qty})=>`${h.shortName}×${qty}`).join(" + ")}  (${vramGb} GB, ${tdpW} W)`:"⚠ No hardware in build"}
+        </div>
+        <div style={{padding:"5px 12px",borderRadius:7,fontSize:11,fontWeight:600,
+          background:hasModel?"rgba(110,80,255,0.08)":"rgba(255,184,48,0.08)",
+          border:`1px solid ${hasModel?"rgba(110,80,255,0.25)":"rgba(255,184,48,0.25)"}`,
+          color:hasModel?"var(--accent2)":"var(--amber)"}}>
+          {hasModel?`🧠 ${selectedModel.name}  (${bestQuant.format}, ${bestQuant.vramReq} GB)`:"⚠ No model selected"}
+        </div>
+      </div>
+
+      {/* Script type tabs */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
+        {TABS.map(t=>(
+          <button key={t.key} onClick={()=>setScriptType(t.key)} style={{
+            padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",fontFamily:"inherit",
+            background:scriptType===t.key?"var(--accent)":"var(--surface2)",
+            color:scriptType===t.key?"#fff":"var(--text2)",
+            fontWeight:scriptType===t.key?700:500,fontSize:11,
+            boxShadow:scriptType===t.key?"0 0 8px var(--accent)55":"none",
+            transition:"all .15s",
+          }}>
+            {t.icon} {t.label}
+            <span style={{display:"block",fontSize:9,color:scriptType===t.key?"rgba(255,255,255,0.7)":"var(--text3)",fontWeight:400,marginTop:1}}>{t.desc}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Parameter summary */}
+      {(hasHw||hasModel)&&(
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+          {[
+            ["Concurrency","concurrent requests",concurrency,setConcurrency,1,100,1],
+            ["Total requests","total to send",totalRequests,setTotalRequests,10,500,10],
+          ].map(([label,hint,val,fn,mn,mx,step])=>(
+            <div key={label} style={{flex:"1 1 180px",background:"rgba(255,255,255,0.02)",borderRadius:9,padding:"10px 13px",border:"1px solid var(--border2)"}}>
+              <div style={{fontSize:10,color:"var(--text3)",marginBottom:4}}>{label} <span style={{fontSize:9}}>({hint})</span></div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="range" min={mn} max={mx} step={step} value={val} onChange={e=>fn(Number(e.target.value))} style={{flex:1,accentColor:"var(--accent)"}}/>
+                <span style={{fontSize:13,fontWeight:700,color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace",minWidth:32,textAlign:"right"}}>{val}</span>
+              </div>
+            </div>
+          ))}
+          {hasModel&&<div style={{flex:"1 1 120px",background:"rgba(255,255,255,0.02)",borderRadius:9,padding:"10px 13px",border:"1px solid var(--border2)"}}>
+            <div style={{fontSize:10,color:"var(--text3)",marginBottom:4}}>Context window</div>
+            <div style={{fontSize:13,fontWeight:700,color:"var(--text)",fontFamily:"'JetBrains Mono',monospace"}}>{params.contextSize.toLocaleString()} tok</div>
+          </div>}
+          {hasModel&&<div style={{flex:"1 1 120px",background:"rgba(255,255,255,0.02)",borderRadius:9,padding:"10px 13px",border:"1px solid var(--border2)"}}>
+            <div style={{fontSize:10,color:"var(--text3)",marginBottom:4}}>Quant format</div>
+            <div style={{fontSize:13,fontWeight:700,color:"var(--accent2)",fontFamily:"'JetBrains Mono',monospace"}}>{params.quantFormat}</div>
+          </div>}
+        </div>
+      )}
+
+      {/* Script box */}
+      <div style={{position:"relative",marginBottom:14}}>
+        <div style={{
+          background:"#0a0a16",border:"1px solid var(--border2)",borderRadius:10,
+          padding:"14px 16px",maxHeight:380,overflowY:"auto",overflowX:"auto",
+          fontFamily:"'JetBrains Mono',monospace",fontSize:11,lineHeight:1.65,
+          color:hasHw&&hasModel?"#c4b8ff":"var(--text3)",whiteSpace:"pre",
+        }}>
+          {script}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        <button onClick={doCopy} disabled={!hasHw||!hasModel} style={{
+          padding:"9px 18px",borderRadius:9,border:"none",cursor:hasHw&&hasModel?"pointer":"not-allowed",
+          background:copied?"var(--green)":"var(--accent)",color:"#fff",fontWeight:700,fontSize:12,
+          fontFamily:"inherit",transition:"all .2s",opacity:hasHw&&hasModel?1:0.5,
+        }}>
+          {copied?"✓ Copied!":"📋 Copy Script"}
+        </button>
+        <button onClick={doDownload} disabled={!hasHw||!hasModel} style={{
+          padding:"9px 18px",borderRadius:9,border:"1px solid var(--border)",cursor:hasHw&&hasModel?"pointer":"not-allowed",
+          background:"var(--surface2)",color:"var(--text)",fontWeight:700,fontSize:12,
+          fontFamily:"inherit",transition:"all .2s",opacity:hasHw&&hasModel?1:0.5,
+        }}>
+          ⬇ Download {ext}
+        </button>
+        <a href={runpodUrl} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+          <button style={{
+            padding:"9px 18px",borderRadius:9,border:"none",cursor:"pointer",
+            background:"linear-gradient(135deg,#7c3aed,#4f46e5)",color:"#fff",
+            fontWeight:700,fontSize:12,fontFamily:"inherit",transition:"all .2s",
+            display:"flex",alignItems:"center",gap:7,
+          }}>
+            <span style={{fontSize:16}}>▲</span>
+            Deploy on RunPod
+            {onRunPod&&<span style={{fontSize:9,opacity:.7,fontWeight:400}}>(generic GPU list)</span>}
+          </button>
+        </a>
+        {hasModel&&(
+          <a href={selectedModel.hfUrl} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}>
+            <button style={{
+              padding:"9px 18px",borderRadius:9,border:"1px solid var(--border)",cursor:"pointer",
+              background:"var(--surface2)",color:"var(--text2)",fontWeight:700,fontSize:12,fontFamily:"inherit",
+            }}>
+              🤗 Model on HuggingFace ↗
+            </button>
+          </a>
+        )}
+      </div>
+
+      {onRunPod&&(
+        <div style={{marginTop:8,fontSize:10,color:"var(--amber)",padding:"5px 10px",background:"rgba(255,184,48,0.07)",borderRadius:6,border:"1px solid rgba(255,184,48,0.2)"}}>
+          ⚠ {hw?.shortName} is not available on RunPod — link opens the GPU cloud browser. Select the closest equivalent GPU manually.
+        </div>
+      )}
+      {!hasHw&&!hasModel&&(
+        <div style={{marginTop:8,fontSize:11,color:"var(--text3)"}}>
+          → Add hardware in the <strong style={{color:"var(--accent2)"}}>Build</strong> tab and select a model in the <strong style={{color:"var(--accent2)"}}>Models</strong> tab to generate scripts.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── POWER COST CALCULATOR ────────────────────────────────────────────────────
 function PowerCostCalc({selectedMap}){
   const [rateINR,setRateINR]=useState(8);     // ₹/kWh
@@ -2726,6 +3431,9 @@ export default function App(){
                 </div>
               )}
             </div>
+
+            {/* ── Deploy & Stress Test Deployer ── */}
+            <StressTestDeployer selectedMap={selectedMap} selectedModel={selectedModel}/>
 
             {/* ── Stress Test Tool Cards ── */}
             <div style={{fontWeight:700,fontSize:14,color:"var(--text)",marginBottom:12}}>🛠 Best Tools for Stress Testing Your Inference Server</div>
