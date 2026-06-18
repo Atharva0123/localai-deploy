@@ -420,6 +420,14 @@ ERROR_THRESHOLD=5   # exit 1 if failure rate exceeds this %
 PROMPT="Explain the architecture of transformer models and how attention mechanisms work in detail."
 # Approx ${p.concurrency * p.contextSize} tokens of combined KV footprint at peak concurrency
 
+# ── Virtual environment + RunPod SDK ─────────────────────────
+echo "[0/4] Setting up Python virtual environment..."
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip -q
+pip install runpod -q
+echo "RunPod SDK installed. Set RUNPOD_API_KEY to manage pods from this script."
+
 # ── Install Ollama ───────────────────────────────────────────
 if ! command -v ollama &>/dev/null; then
   echo "[1/4] Installing Ollama..."
@@ -569,6 +577,14 @@ RESULTS_FILE="results_llamacpp_${p.modelId}.txt"
 JSON_FILE="results_llamacpp_${p.modelId}.json"
 GPU_LOG="gpu_metrics_${p.modelId}.log"
 ERROR_THRESHOLD=5
+
+# ── Virtual environment + RunPod SDK ─────────────────────────
+echo "[0/5] Setting up Python virtual environment..."
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip -q
+pip install runpod -q
+echo "RunPod SDK installed. Set RUNPOD_API_KEY to manage pods from this script."
 
 # ── Install dependencies ──────────────────────────────────────
 echo "[1/5] Installing build tools..."
@@ -733,6 +749,14 @@ JSON_FILE="results_vllm_${p.modelId}.json"
 GPU_LOG="gpu_metrics_${p.modelId}.log"
 ERROR_THRESHOLD=5
 
+# ── Virtual environment + RunPod SDK ─────────────────────────
+echo "[0/4] Setting up Python virtual environment..."
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip -q
+pip install runpod -q
+echo "RunPod SDK installed. Set RUNPOD_API_KEY to manage pods from this script."
+
 # ── Install vLLM ─────────────────────────────────────────────
 echo "[1/4] Installing vLLM + locust..."
 pip install vllm locust -q
@@ -878,12 +902,20 @@ Hardware : ${p.gpuName} x${p.gpuCount} (${p.vramGb} GB VRAM)
 Quant    : ${p.quantFormat}  |  Context: ${p.contextSize} tokens
 Generated: LocalAI Deploy (template substitution, no AI)
 
+Setup (run once before this script):
+  python3 -m venv .venv && source .venv/bin/activate
+  pip install aiohttp runpod
+
 Works against:
   Ollama  → BASE_URL = "http://localhost:11434"  BACKEND = "ollama"
   vLLM    → BASE_URL = "http://localhost:8000"   BACKEND = "vllm"
   llama.cpp → BASE_URL = "http://localhost:8080" BACKEND = "llamacpp"
 """
 import asyncio, aiohttp, time, json, statistics, sys, subprocess, shutil
+try:
+    import runpod  # pip install runpod — optional: manage RunPod pods programmatically
+except ImportError:
+    runpod = None
 
 # ── Config (pre-filled from your build) ──────────────────────
 BASE_URL        = "http://localhost:11434"   # change to 8000 for vLLM, 8080 for llama.cpp
@@ -2275,11 +2307,212 @@ function ConcurrentSimulator({selectedMap,selectedModel}){
 }
 
 // ─── STRESS TEST DEPLOYER ─────────────────────────────────────────────────────
+// ── Simulation step generator ────────────────────────────────
+function generateSimSteps(scriptType,params,bestQuant){
+  const steps=[];
+  const add=(text,delay=80)=>steps.push({text,delay});
+  const tps=bestQuant?.speed||20;
+  const outputTok=256;
+  const baseLatMs=Math.round((outputTok/Math.max(tps,1))*1000);
+  const loadFactor=1+Math.max(params.concurrency-1,0)*0.04;
+  const avgLatMs=Math.round(baseLatMs*loadFactor);
+  const errRate=0.02;
+  const okCount=Math.floor(params.totalRequests*(1-errRate));
+  const errCount=params.totalRequests-okCount;
+  const errPct=(errCount/params.totalRequests*100).toFixed(2);
+  const gpuUtil=Math.min(95,Math.round(60+(tps/100)*30+(params.concurrency/100)*10));
+  // seeded noise: deterministic per-request variation so reruns differ
+  const noise=(i,amp=0.25)=>1-amp/2+((i*7+13)%17)/17*amp;
+  const mTag=params.ollamaTag||params.modelId;
+  const mName=params.modelName;
+
+  const headerLines=(backend,totalSteps)=>[
+    `\x1b[1;36m╔══════════════════════════════════════════════════╗\x1b[0m`,
+    `\x1b[1;36m║  LocalAI Deploy — Virtual Simulation             ║\x1b[0m`,
+    `\x1b[1;36m╚══════════════════════════════════════════════════╝\x1b[0m`,
+    `  Model    : \x1b[93m${mName}\x1b[0m`,
+    `  Hardware : \x1b[93m${params.gpuName} ×${params.gpuCount}\x1b[0m  (${params.vramGb} GB VRAM, ${params.tdpW} W)`,
+    `  Backend  : \x1b[93m${backend}\x1b[0m`,
+    `  Quant    : \x1b[93m${params.quantFormat}\x1b[0m  est. ${tps} t/s`,
+    `  Workers  : ${params.concurrency}  |  Requests: ${params.totalRequests}`,
+    ``,
+  ];
+
+  if(scriptType==="ollama"){
+    headerLines("Ollama",4).forEach(l=>add(l,40));
+    add(`\x1b[36m[0/4] Setting up Python venv + RunPod SDK...\x1b[0m`,300);
+    add(`  ✓ Virtual environment created (.venv)`,500);
+    add(`  ✓ pip install runpod ... done`,600);
+    add(`\x1b[36m[1/4] Checking Ollama installation...\x1b[0m`,400);
+    add(`  ✓ ollama v0.4.7 found`,600);
+    add(`\x1b[36m[2/4] Pulling ${mTag} ...\x1b[0m`,300);
+    add(`  pulling manifest...`,800);
+    add(`  \x1b[32mpulling ${params.quantFormat} weights: ████████████ 100%\x1b[0m`,900);
+    add(`  verifying sha256 digest... done`,400);
+    add(`  ✓ Model ready.`,300);
+    add(`\x1b[36m[3/4] Starting Ollama (OLLAMA_NUM_PARALLEL=${params.concurrency})...\x1b[0m`,300);
+    add(`  GPU monitoring: nvidia-smi dmon → gpu_metrics_${params.modelId}.log`,400);
+    add(`  Server PID: 12847  |  listening on :11434`,500);
+    add(`  Warming up (loading ${params.vramGb} GB into VRAM)...`,300);
+    add(`  ✓ Warmup complete. Starting timed load test.`,1000);
+    add(`\x1b[36m[4/4] Running ${params.totalRequests} requests at ${params.concurrency} concurrency...\x1b[0m`,200);
+    for(let i=1;i<=params.totalRequests;i++){
+      const lat=Math.round(avgLatMs*noise(i));
+      const tok=Math.round(outputTok*noise(i,0.15));
+      const t=(tok/(lat/1000)).toFixed(1);
+      const ok=i>Math.floor(params.totalRequests*errRate);
+      if(ok) add(`  req=${String(i).padStart(3)} \x1b[32mOK\x1b[0m  latency=${lat}ms  tokens=${tok}  tps=${t}`,i<=5?120:35);
+      else    add(`  req=${String(i).padStart(3)} \x1b[31mERR\x1b[0m latency=${lat}ms  http=503`,60);
+    }
+    add(``,100);
+    add(`\x1b[1;32m=== Summary ===\x1b[0m`,200);
+    add(`  model                : ${mTag}`,50);
+    add(`  hardware             : ${params.gpuName} ×${params.gpuCount}`,50);
+    add(`  quant                : ${params.quantFormat}`,50);
+    add(`  concurrency          : ${params.concurrency}`,50);
+    add(`  total_requests       : ${params.totalRequests}`,50);
+    add(`  ok                   : ${okCount}`,50);
+    add(`  errors               : ${errCount}`,50);
+    add(`  error_rate_pct       : ${errPct}`,50);
+    add(`  latency_avg_ms       : ${avgLatMs}`,50);
+    add(`  latency_p50_ms       : ${Math.round(avgLatMs*0.95)}`,50);
+    add(`  latency_p95_ms       : ${Math.round(avgLatMs*1.35)}`,50);
+    add(`  latency_p99_ms       : ${Math.round(avgLatMs*1.65)}`,50);
+    add(`  avg_tps_per_slot     : ${tps.toFixed?tps.toFixed(1):tps}`,50);
+    add(`  total_tps            : ${(tps*params.concurrency*0.7).toFixed(1)} t/s aggregate`,50);
+    add(`  gpu_utilization_avg  : ${gpuUtil}%`,50);
+    add(``,100);
+    add(`  \x1b[32m✓\x1b[0m JSON → results_ollama_${params.modelId}.json`,200);
+    add(`  \x1b[32m✓\x1b[0m GPU log → gpu_metrics_${params.modelId}.log`,100);
+    add(`  Done.`,300);
+  }else if(scriptType==="llamacpp"){
+    headerLines("llama.cpp",5).forEach(l=>add(l,40));
+    add(`\x1b[36m[0/5] Setting up Python venv + RunPod SDK...\x1b[0m`,300);
+    add(`  ✓ .venv created, runpod installed`,700);
+    add(`\x1b[36m[1/5] Installing build tools (cmake, gcc)...\x1b[0m`,300);
+    add(`  apt-get: build-essential cmake git ...`,800);
+    add(`  ✓ Build tools ready`,400);
+    add(`\x1b[36m[2/5] Building llama.cpp (CUDA)...\x1b[0m`,300);
+    add(`  cmake -DGGML_CUDA=ON ...`,600);
+    add(`  [ 15%] Building CXX ...`,800);
+    add(`  [ 42%] Building CUDA kernels ...`,900);
+    add(`  [ 78%] Linking llama-server ...`,700);
+    add(`  \x1b[32m✓ Build complete\x1b[0m`,400);
+    add(`\x1b[36m[3/5] Downloading ${params.modelId}-${params.quantFormat}.gguf...\x1b[0m`,300);
+    add(`  Downloading from HuggingFace: ${params.hfModelId||params.modelId}`,600);
+    add(`  \x1b[32m████████████ 100%\x1b[0m  ${params.vramGb>20?Math.round(params.vramGb*0.9):8} GB`,1000);
+    add(`  ✓ GGUF ready`,400);
+    add(`\x1b[36m[4/5] Starting llama-server (port 8080, seed=42)...\x1b[0m`,300);
+    add(`  --n-gpu-layers ${Math.min(Math.floor((params.vramGb*1024*0.85)/Math.max(Math.round(params.paramsBillion*0.8),1)),200)} --ctx-size ${params.contextSize} --parallel ${params.concurrency}`,400);
+    add(`  GPU monitoring → gpu_metrics_${params.modelId}.log`,400);
+    add(`  Server ready on :8080`,600);
+    add(`  Warming up (loading into VRAM)...`,300);
+    add(`  ✓ Warmup complete. Starting timed load test.`,800);
+    add(`\x1b[36m[5/5] Running ${params.totalRequests} requests at ${params.concurrency} concurrency...\x1b[0m`,200);
+    for(let i=1;i<=params.totalRequests;i++){
+      const lat=Math.round(avgLatMs*noise(i));
+      const tok=Math.round(outputTok*noise(i,0.15));
+      const t=(tok/(lat/1000)).toFixed(1);
+      const ok=i>Math.floor(params.totalRequests*errRate);
+      if(ok) add(`  req=${String(i).padStart(3)} \x1b[32mOK\x1b[0m  latency=${lat}ms  tokens=${tok}  tps=${t}`,i<=5?120:35);
+      else    add(`  req=${String(i).padStart(3)} \x1b[31mERR\x1b[0m latency=${lat}ms  http=503`,60);
+    }
+    add(``,100);
+    add(`\x1b[1;32m=== Summary ===\x1b[0m`,200);
+    add(`  seed=42  |  concurrency=${params.concurrency}  |  error_rate=${errPct}%`,60);
+    add(`  latency_avg_ms : ${avgLatMs}  |  p95 : ${Math.round(avgLatMs*1.35)}  |  p99 : ${Math.round(avgLatMs*1.65)}`,60);
+    add(`  avg_tps_per_slot : ${tps.toFixed?tps.toFixed(1):tps}  |  gpu_util : ${gpuUtil}%`,60);
+    add(`  \x1b[32m✓\x1b[0m JSON → results_llamacpp_${params.modelId}.json`,200);
+    add(`  Done.`,300);
+  }else if(scriptType==="vllm"){
+    headerLines("vLLM",4).forEach(l=>add(l,40));
+    add(`\x1b[36m[0/4] Setting up Python venv + RunPod SDK...\x1b[0m`,300);
+    add(`  ✓ .venv created, runpod + locust installed`,800);
+    add(`\x1b[36m[1/4] Installing vLLM + locust...\x1b[0m`,300);
+    add(`  pip install vllm locust ...`,800);
+    add(`  ✓ vLLM ready`,400);
+    add(`\x1b[36m[2/4] Launching vLLM server (tensor-parallel=${params.gpuCount}, seed=42)...\x1b[0m`,300);
+    add(`  --model ${params.hfModelId||params.modelId}`,200);
+    add(`  --max-model-len ${params.contextSize} --gpu-memory-utilization 0.90`,200);
+    add(`  Waiting for server...`,400);
+    for(let i=0;i<5;i++) add(`  .`,300);
+    add(`  ✓ Server ready on :8000`,500);
+    add(`  GPU monitoring → gpu_metrics_${params.modelId}.log`,300);
+    add(`  Warming up (first request loads weights)...`,300);
+    add(`  ✓ Warmup complete.`,800);
+    add(`\x1b[36m[3/4] Writing locust test file...\x1b[0m`,200);
+    add(`  ✓ locustfile_${params.modelId}.py created`,400);
+    add(`\x1b[36m[4/4] Running locust: ${params.totalRequests} reqs at ${params.concurrency} users...\x1b[0m`,200);
+    add(`  Type     Name                       # reqs  # fails  Avg   Min   Max  RPS`,300);
+    add(`  ────────────────────────────────────────────────────────────────────────────`,100);
+    for(let i=1;i<=6;i++){
+      const req=Math.round(params.totalRequests/6*i);
+      const fail=Math.round(req*errRate);
+      const lat=Math.round(avgLatMs*noise(i,0.1));
+      add(`  POST     /v1/chat/completions  ${String(req).padStart(6)}  ${String(fail).padStart(7)}  ${lat}  ${Math.round(lat*0.7)}  ${Math.round(lat*1.5)}  ${(req/60).toFixed(1)}`,500);
+    }
+    add(``,100);
+    add(`\x1b[1;32m=== Summary (from locust CSV) ===\x1b[0m`,200);
+    add(`  model        : ${params.modelId}  seed=42`,50);
+    add(`  total        : ${params.totalRequests}  errors: ${errCount}  error_rate: ${errPct}%`,50);
+    add(`  latency_avg  : ${avgLatMs} ms  p95: ${Math.round(avgLatMs*1.35)} ms  p99: ${Math.round(avgLatMs*1.65)} ms`,50);
+    add(`  req_per_sec  : ${(params.totalRequests/60).toFixed(1)}  |  gpu_util: ${gpuUtil}%`,50);
+    add(`  \x1b[32m✓\x1b[0m JSON → results_vllm_${params.modelId}.json`,200);
+    add(`  Done.`,300);
+  }else{
+    headerLines("Python asyncio",1).forEach(l=>add(l,40));
+    add(`  Setup: .venv + aiohttp + runpod`,300);
+    add(`  ✓ RunPod SDK imported (set RUNPOD_API_KEY to use)`,500);
+    add(`  GPU monitoring: nvidia-smi via subprocess → gpu_metrics_${params.modelId}.log`,300);
+    add(`  Warming up...`,300);
+    add(`  ✓ Warmup complete. Starting dispatcher.`,800);
+    add(``,100);
+    add(`\x1b[36m=== Load test: ${params.totalRequests} requests | ${params.concurrency} concurrent | ${params.ollamaTag||params.modelId} ===\x1b[0m`,200);
+    for(let i=0;i<params.totalRequests;i++){
+      const lat=avgLatMs*noise(i);
+      const tok=Math.round(outputTok*noise(i,0.15));
+      const t=(tok/(lat/1000)).toFixed(1);
+      const ok=i>=Math.floor(params.totalRequests*errRate);
+      if(ok) add(`  req ${String(i).padStart(3)}: ${Math.round(lat)}ms | ${tok} tok | ${t} t/s`,i<5?120:35);
+      else    add(`  req ${String(i).padStart(3)}: \x1b[31mtimeout / HTTP 503\x1b[0m`,60);
+    }
+    const totS=(params.totalRequests/(params.concurrency*tps/outputTok)).toFixed(1);
+    add(``,100);
+    add(`\x1b[1;32m=== Results ===\x1b[0m`,200);
+    add(`  model                : ${params.modelName}`,50);
+    add(`  backend              : ${params.ollamaTag?"ollama":"vllm"}  seed=42`,50);
+    add(`  concurrency          : ${params.concurrency}`,50);
+    add(`  total_requests       : ${params.totalRequests}  ok: ${okCount}  errors: ${errCount}`,50);
+    add(`  error_rate_pct       : ${errPct}`,50);
+    add(`  total_time_s         : ${totS}`,50);
+    add(`  latency_avg_ms       : ${avgLatMs}`,50);
+    add(`  latency_p50_ms       : ${Math.round(avgLatMs*0.95)}`,50);
+    add(`  latency_p95_ms       : ${Math.round(avgLatMs*1.35)}`,50);
+    add(`  latency_p99_ms       : ${Math.round(avgLatMs*1.65)}`,50);
+    add(`  avg_tps_per_slot     : ${tps.toFixed?tps.toFixed(1):tps}`,50);
+    add(`  gpu_utilization_avg  : ${gpuUtil}%`,50);
+    add(`  \x1b[32m✓\x1b[0m JSON → results_python_${params.modelId}.json`,200);
+    const threshold=5;
+    if(parseFloat(errPct)>threshold){
+      add(`  \x1b[31m✗ FAIL: error rate ${errPct}% > ${threshold}% threshold → exit 1\x1b[0m`,300);
+    }else{
+      add(`  \x1b[32m✓ PASS: error rate ${errPct}% within ${threshold}% threshold\x1b[0m`,300);
+    }
+    add(`  Done.`,200);
+  }
+  return steps;
+}
+
 function StressTestDeployer({selectedMap,selectedModel}){
   const [scriptType,setScriptType]=useState("ollama");
   const [concurrency,setConcurrency]=useState(25);
   const [totalRequests,setTotalRequests]=useState(100);
   const [copied,setCopied]=useState(false);
+  const [simLines,setSimLines]=useState([]);
+  const [simRunning,setSimRunning]=useState(false);
+  const [simDone,setSimDone]=useState(false);
+  const termRef=useRef(null);
+  const timerRef=useRef(null);
 
   // Derive build info from selectedMap
   const hwEntries=useMemo(()=>
@@ -2335,8 +2568,10 @@ function StressTestDeployer({selectedMap,selectedModel}){
   const filename=`stress-test-${params.modelId}-${scriptType}${ext}`;
 
   const runpodGpuType=hw?RUNPOD_GPU_MAP[hw.id]:null;
+  // containerDiskInGb: GGUF size estimate (~0.55 GB/B params for Q4_K_M) + 50 GB OS/deps buffer
+  const containerDiskGb=hasModel?Math.max(60,Math.ceil((selectedModel.params||7)*0.55)+50):80;
   const runpodUrl=runpodGpuType
-    ?`https://www.runpod.io/console/gpu-secure-cloud?gpuDisplayName=${encodeURIComponent(runpodGpuType)}&gpuCount=${gpuCount}`
+    ?`https://www.runpod.io/console/gpu-secure-cloud?gpuDisplayName=${encodeURIComponent(runpodGpuType)}&gpuCount=${gpuCount}&containerDiskInGb=${containerDiskGb}`
     :"https://www.runpod.io/console/gpu-secure-cloud";
   const onRunPod=hw&&!RUNPOD_GPU_MAP[hw.id];
 
@@ -2351,9 +2586,38 @@ function StressTestDeployer({selectedMap,selectedModel}){
     a.click();
   };
 
+  const doSimulate=()=>{
+    if(simRunning)return;
+    clearTimeout(timerRef.current);
+    setSimLines([]);
+    setSimDone(false);
+    setSimRunning(true);
+    const steps=generateSimSteps(scriptType,params,bestQuant);
+    let idx=0;
+    const advance=()=>{
+      if(idx>=steps.length){setSimRunning(false);setSimDone(true);return;}
+      const{text,delay}=steps[idx++];
+      setSimLines(prev=>[...prev,text]);
+      timerRef.current=setTimeout(advance,delay);
+    };
+    advance();
+  };
+  const doStop=()=>{clearTimeout(timerRef.current);setSimRunning(false);};
+
+  // Auto-scroll terminal
+  useEffect(()=>{
+    if(termRef.current) termRef.current.scrollTop=termRef.current.scrollHeight;
+  },[simLines]);
+
+  // Cleanup timer on unmount or script type change
+  useEffect(()=>{
+    setSimLines([]);setSimDone(false);
+    return()=>clearTimeout(timerRef.current);
+  },[scriptType,params]);
+
   const TABS=[
     {key:"ollama",label:"Ollama",icon:"🦙",desc:"ollama serve + parallel slots"},
-    {key:"llamacpp",label:"llama.cpp",icon:"⚡",desc:"llama-server + Apache Bench"},
+    {key:"llamacpp",label:"llama.cpp",icon:"⚡",desc:"llama-server + per-req loop"},
     {key:"vllm",label:"vLLM",icon:"🚀",desc:"OpenAI API server + locust"},
     {key:"python",label:"Python asyncio",icon:"🐍",desc:"aiohttp concurrent loop"},
   ];
@@ -2435,6 +2699,90 @@ function StressTestDeployer({selectedMap,selectedModel}){
         </div>
       </div>
 
+      {/* ── Virtual Terminal ─────────────────────────────────── */}
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <div style={{fontWeight:700,fontSize:13,color:"var(--text)"}}>▶ Virtual Terminal</div>
+          <div style={{fontSize:10,color:"var(--text3)"}}>Simulated run using estimated metrics from your build — no real server needed</div>
+        </div>
+        {/* Terminal header bar */}
+        <div style={{background:"#1a1a2e",borderRadius:"10px 10px 0 0",padding:"7px 14px",display:"flex",alignItems:"center",gap:6,border:"1px solid var(--border2)",borderBottom:"none"}}>
+          <div style={{width:10,height:10,borderRadius:"50%",background:"#ff5f57"}}/>
+          <div style={{width:10,height:10,borderRadius:"50%",background:"#febc2e"}}/>
+          <div style={{width:10,height:10,borderRadius:"50%",background:"#28c840"}}/>
+          <span style={{marginLeft:8,fontSize:10,color:"#666",fontFamily:"'JetBrains Mono',monospace"}}>
+            stress-test — {params.modelId||"model"} — {scriptType}
+          </span>
+          {simRunning&&<span style={{marginLeft:"auto",fontSize:10,color:"var(--amber)",fontWeight:600,animation:"blink 1s step-end infinite"}}>● RUNNING</span>}
+          {simDone&&<span style={{marginLeft:"auto",fontSize:10,color:"var(--green)",fontWeight:600}}>✓ DONE</span>}
+        </div>
+        {/* Terminal body */}
+        <div ref={termRef} style={{
+          background:"#080812",border:"1px solid var(--border2)",borderRadius:"0 0 10px 10px",
+          padding:"12px 14px",height:300,overflowY:"auto",overflowX:"auto",
+          fontFamily:"'JetBrains Mono',monospace",fontSize:11,lineHeight:1.7,whiteSpace:"pre",
+        }}>
+          {simLines.length===0&&!simRunning&&(
+            <span style={{color:"#444"}}>
+              {hasHw&&hasModel
+                ? `$ # Click "Run Simulation" to preview expected output\n$ # Uses estimated metrics for ${params.gpuName} × ${params.gpuCount} + ${params.modelName} (${params.quantFormat})`
+                : "$ # Select hardware and a model first"}
+            </span>
+          )}
+          {simLines.map((line,i)=>{
+            // Strip ANSI for rendering — map colors to CSS
+            const ansiMap=[
+              [/\x1b\[1;36m(.*?)\x1b\[0m/g,'<span style="color:#67e8f9;font-weight:700">$1</span>'],
+              [/\x1b\[1;32m(.*?)\x1b\[0m/g,'<span style="color:#86efac;font-weight:700">$1</span>'],
+              [/\x1b\[36m(.*?)\x1b\[0m/g,'<span style="color:#67e8f9">$1</span>'],
+              [/\x1b\[32m(.*?)\x1b\[0m/g,'<span style="color:#86efac">$1</span>'],
+              [/\x1b\[31m(.*?)\x1b\[0m/g,'<span style="color:#f87171">$1</span>'],
+              [/\x1b\[93m(.*?)\x1b\[0m/g,'<span style="color:#fde68a">$1</span>'],
+            ];
+            let html=line.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+            ansiMap.forEach(([re,tmpl])=>{html=html.replace(re,tmpl);});
+            // Remove any remaining escape sequences
+            html=html.replace(/\x1b\[[0-9;]*m/g,'');
+            return <div key={i} dangerouslySetInnerHTML={{__html:html||' '}}/>;
+          })}
+          {simRunning&&<span style={{color:"#a8a8ff",animation:"blink 0.8s step-end infinite"}}>█</span>}
+        </div>
+        {/* Terminal controls */}
+        <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap",alignItems:"center"}}>
+          <button onClick={doSimulate} disabled={simRunning||!hasHw||!hasModel} style={{
+            padding:"8px 16px",borderRadius:8,border:"none",fontFamily:"inherit",fontSize:12,fontWeight:700,
+            cursor:simRunning||!hasHw||!hasModel?"not-allowed":"pointer",transition:"all .2s",
+            background:simDone?"var(--surface3)":simRunning?"var(--surface2)":"linear-gradient(135deg,#059669,#10b981)",
+            color:simRunning?"var(--text3)":"#fff",
+            opacity:!hasHw||!hasModel?0.4:1,
+          }}>
+            {simRunning?"⏳ Simulating...":simDone?"↺ Run Again":"▶ Run Simulation"}
+          </button>
+          {simRunning&&(
+            <button onClick={doStop} style={{
+              padding:"8px 14px",borderRadius:8,border:"1px solid rgba(239,68,68,0.4)",fontFamily:"inherit",
+              fontSize:12,fontWeight:600,cursor:"pointer",background:"rgba(239,68,68,0.08)",color:"#f87171",
+            }}>■ Stop</button>
+          )}
+          {simLines.length>0&&!simRunning&&(
+            <button onClick={()=>{setSimLines([]);setSimDone(false);}} style={{
+              padding:"8px 14px",borderRadius:8,border:"1px solid var(--border)",fontFamily:"inherit",
+              fontSize:12,fontWeight:600,cursor:"pointer",background:"var(--surface2)",color:"var(--text3)",
+            }}>✕ Clear</button>
+          )}
+          {hasModel&&hasHw&&!simRunning&&(
+            <span style={{fontSize:10,color:"var(--text3)",marginLeft:4}}>
+              Est. {Math.round((bestQuant?.speed||20)*params.gpuCount*0.7)} t/s aggregate · {params.vramGb} GB VRAM · ~{Math.round(params.totalRequests*((256/(bestQuant?.speed||20))*1000+(params.concurrency*40))/1000/params.concurrency)}s total
+            </span>
+          )}
+        </div>
+        {hasHw&&hasModel&&(
+          <div style={{marginTop:6,fontSize:10,color:"var(--text3)",padding:"5px 10px",background:"rgba(110,80,255,0.05)",borderRadius:6,border:"1px solid rgba(110,80,255,0.12)"}}>
+            ℹ Simulation estimates based on {params.quantFormat} quant speed ({bestQuant?.speed||"?"} t/s) and concurrency load model. Actual results vary by CPU, cooling, RAM bandwidth, and prompt length.
+          </div>
+        )}
+      </div>
+
       {/* Action buttons */}
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         <button onClick={doCopy} disabled={!hasHw||!hasModel} style={{
@@ -2459,7 +2807,9 @@ function StressTestDeployer({selectedMap,selectedModel}){
             display:"flex",alignItems:"center",gap:7,
           }}>
             <span style={{fontSize:16}}>▲</span>
-            Deploy on RunPod
+            {hasModel&&hasHw
+              ?`Deploy ${params.gpuName}×${gpuCount} + ${params.quantFormat} on RunPod`
+              :"Deploy on RunPod"}
             {onRunPod&&<span style={{fontSize:9,opacity:.7,fontWeight:400}}>(generic GPU list)</span>}
           </button>
         </a>
@@ -2475,6 +2825,13 @@ function StressTestDeployer({selectedMap,selectedModel}){
         )}
       </div>
 
+      {hasModel&&hasHw&&(
+        <div style={{marginTop:8,fontSize:10,color:"var(--text3)",display:"flex",gap:16,flexWrap:"wrap"}}>
+          <span>RunPod disk: <strong style={{color:"var(--accent2)"}}>{containerDiskGb} GB</strong> (GGUF + OS buffer)</span>
+          <span>GPU filter: <strong style={{color:"var(--accent2)"}}>{runpodGpuType||"generic search"}</strong></span>
+          {hasModel&&<span>Model: <strong style={{color:"var(--accent2)"}}>{selectedModel.name}</strong></span>}
+        </div>
+      )}
       {onRunPod&&(
         <div style={{marginTop:8,fontSize:10,color:"var(--amber)",padding:"5px 10px",background:"rgba(255,184,48,0.07)",borderRadius:6,border:"1px solid rgba(255,184,48,0.2)"}}>
           ⚠ {hw?.shortName} is not available on RunPod — link opens the GPU cloud browser. Select the closest equivalent GPU manually.
