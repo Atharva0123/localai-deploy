@@ -2538,11 +2538,14 @@ function StressTestDeployer({selectedMap,selectedModel}){
   const hasHw=hwEntries.length>0;
   const hasModel=!!selectedModel;
 
-  // Choose best fitting quant
+  // Choose best fitting quant — guard against empty/missing quants (custom models have quants:[])
   const bestQuant=useMemo(()=>{
-    if(!selectedModel)return{format:"Q4_K_M"};
-    const fits=selectedModel.quants.filter(q=>q.vramReq<=vramGb);
-    return fits.length?fits[0]:selectedModel.quants[selectedModel.quants.length-1];
+    const fallback={format:"Q4_K_M",speed:20,vramReq:0,quality:90};
+    if(!selectedModel)return fallback;
+    const qs=selectedModel.quants;
+    if(!qs||qs.length===0)return fallback;
+    const fits=qs.filter(q=>q.vramReq<=vramGb);
+    return fits.length?fits[0]:qs[qs.length-1]||fallback;
   },[selectedModel,vramGb]);
 
   const params=useMemo(()=>({
@@ -2553,10 +2556,10 @@ function StressTestDeployer({selectedMap,selectedModel}){
     modelName:selectedModel?.name||"",
     modelId:selectedModel?.id||"model",
     hfModelId:selectedModel?.hfUrl?.replace("https://huggingface.co/","")||"",
-    ollamaTag:selectedModel?toOllamaTag(selectedModel.id,bestQuant.format):"",
+    ollamaTag:selectedModel?toOllamaTag(selectedModel.id,bestQuant?.format||"Q4_K_M"):"",
     paramsBillion:selectedModel?.params||7,
     contextSize:Math.min(selectedModel?.contextLen||32768,32768),
-    quantFormat:bestQuant.format,
+    quantFormat:bestQuant?.format||"Q4_K_M",
     concurrency,
     totalRequests,
   }),[hw,gpuCount,vramGb,tdpW,selectedModel,bestQuant,concurrency,totalRequests]);
@@ -2658,7 +2661,7 @@ function StressTestDeployer({selectedMap,selectedModel}){
           background:hasModel?"rgba(110,80,255,0.08)":"rgba(255,184,48,0.08)",
           border:`1px solid ${hasModel?"rgba(110,80,255,0.25)":"rgba(255,184,48,0.25)"}`,
           color:hasModel?"var(--accent2)":"var(--amber)"}}>
-          {hasModel?`🧠 ${selectedModel.name}  (${bestQuant.format}, ${bestQuant.vramReq} GB)`:"⚠ No model selected"}
+          {hasModel?`🧠 ${selectedModel.name}  (${bestQuant?.format||"Q4_K_M"}${bestQuant?.vramReq?`, ${bestQuant.vramReq} GB`:""})`:"⚠ No model selected"}
         </div>
       </div>
 
