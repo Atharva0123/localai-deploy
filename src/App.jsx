@@ -43,6 +43,7 @@ const ALL_HW = [
   // ── NVIDIA Hopper Data Center ──
   {id:"h100_sxm",name:"NVIDIA H100 SXM5",shortName:"H100 SXM5",brand:"NVIDIA",series:"Hopper DC",gen:"Hopper",segment:"datacenter",vram:80,vramType:"HBM3",priceUSD:30000,tdp:700,bandwidth:3350,fp16:267.6,fp8:535,int8:1071,fp4:null,nvlink:true,pcie:"SXM5",released:"2023-Q1",rating:10.0,inStock:false,sources:["nvidia_ai","nvidia_official","redington"],notes:"Industry standard. Transformer Engine FP8.",topology:"GH100",cudaCores:16896,tensorCores:528,memBusWidth:5120,boostClockMHz:1980,useCase:["LLM Training","LLM Inference","RAG"],tokensPerSec:{llama70b:58,llama8b:465,mistral7b:520}},
   {id:"h100_pcie",name:"NVIDIA H100 PCIe",shortName:"H100 PCIe",brand:"NVIDIA",series:"Hopper DC",gen:"Hopper",segment:"datacenter",vram:80,vramType:"HBM2e",priceUSD:25000,tdp:350,bandwidth:2000,fp16:204,fp8:408,int8:816,fp4:null,nvlink:false,pcie:"PCIe 5.0 x16",released:"2023-Q1",rating:9.8,inStock:true,sources:["nvidia_ai","redington"],notes:"80 GB PCIe — fits standard servers.",topology:"GH100",useCase:["LLM Inference","RAG","Embeddings"],tokensPerSec:{llama70b:42,llama8b:335,mistral7b:375}},
+  {id:"h100_nvl",name:"NVIDIA H100 NVL",shortName:"H100 NVL",brand:"NVIDIA",series:"Hopper DC",gen:"Hopper",segment:"datacenter",vram:94,vramType:"HBM2e",priceUSD:33000,tdp:400,bandwidth:2400,fp16:240,fp8:480,int8:960,fp4:null,nvlink:true,pcie:"PCIe 5.0 x16",released:"2023-Q3",rating:9.9,inStock:false,sources:["nvidia_ai","nvidia_official"],notes:"94 GB HBM2e — 14 GB more than standard H100 PCIe. Designed for NVLink 4.0 bridge pairs (900 GB/s bidirectional). Two H100 NVL cards give 188 GB combined VRAM — ideal for 70B+ inference without an SXM baseboard.",topology:"GH100",cudaCores:16896,tensorCores:528,memBusWidth:5120,boostClockMHz:1980,useCase:["LLM Inference","LLM Training","RAG"],tokensPerSec:{llama70b:50,llama8b:400,mistral7b:448}},
   {id:"h200_sxm",name:"NVIDIA H200 SXM",shortName:"H200 SXM",brand:"NVIDIA",series:"Hopper DC",gen:"Hopper",segment:"datacenter",vram:141,vramType:"HBM3e",priceUSD:35000,tdp:700,bandwidth:4800,fp16:989,fp8:1979,int8:3958,fp4:null,nvlink:true,pcie:"SXM5",released:"2024-Q1",rating:10.0,inStock:false,sources:["nvidia_ai","nvidia_official"],notes:"141 GB HBM3e. Best Hopper inference.",topology:"GH100",useCase:["LLM Inference","LLM Training"],tokensPerSec:{llama70b:95,llama8b:760,mistral7b:850}},
   // ── NVIDIA Ampere Data Center ──
   {id:"a100_80_sxm",name:"NVIDIA A100 80GB SXM",shortName:"A100 80GB SXM",brand:"NVIDIA",series:"Ampere DC",gen:"Ampere",segment:"datacenter",vram:80,vramType:"HBM2e",priceUSD:10000,tdp:400,bandwidth:2000,fp16:77.6,fp8:null,int8:311,fp4:null,nvlink:true,pcie:"SXM4",released:"2020-Q4",rating:9.8,inStock:true,sources:["nvidia_ai","amazon_us","redington"],notes:"Training standard. NVLink 600 GB/s.",topology:"GA100",cudaCores:6912,tensorCores:432,memBusWidth:5120,boostClockMHz:1410,useCase:["LLM Training","LLM Inference","RAG"],tokensPerSec:{llama70b:38,llama8b:305,mistral7b:340}},
@@ -56,7 +57,9 @@ const ALL_HW = [
   {id:"a40",name:"NVIDIA A40 48GB",shortName:"A40",brand:"NVIDIA",series:"Ampere DC",gen:"Ampere",segment:"datacenter",vram:48,vramType:"GDDR6 ECC",priceUSD:7000,tdp:300,bandwidth:696,fp16:37.4,fp8:null,int8:149.7,fp4:null,nvlink:true,pcie:"PCIe 4.0 x16",released:"2020-Q4",rating:8.8,inStock:true,sources:["nvidia_ai","amazon_us","redington"],notes:"48 GB GDDR6 ECC. Workstation+inference server staple.",topology:"GA102",useCase:["LLM Inference","RAG","Rendering"],cudaCores:10752,tensorCores:336,memBusWidth:384,boostClockMHz:1740,tokensPerSec:{llama70b:null,llama8b:110,mistral7b:122}},
   {id:"a30",name:"NVIDIA A30 24GB",shortName:"A30",brand:"NVIDIA",series:"Ampere DC",gen:"Ampere",segment:"datacenter",vram:24,vramType:"HBM2",priceUSD:4000,tdp:165,bandwidth:933,fp16:10.3,fp8:null,int8:82.6,fp4:null,nvlink:true,pcie:"PCIe 4.0 x16",released:"2021-Q3",rating:8.3,inStock:true,sources:["nvidia_ai","amazon_us","redington"],notes:"24 GB HBM2. 933 GB/s. Dense multi-node inference.",topology:"GA100",useCase:["LLM Inference","Embeddings"],cudaCores:3584,tensorCores:224,memBusWidth:3072,boostClockMHz:1440,tokensPerSec:{llama70b:null,llama8b:45,mistral7b:50}},
   // ── NVIDIA RTX PRO Blackwell Workstation ──
-  {id:"rtxpro6000_bw",name:"NVIDIA RTX PRO 6000 Blackwell WS",shortName:"RTX PRO 6000 BW",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:96,vramType:"GDDR7 ECC",priceUSD:8000,tdp:300,bandwidth:1792,fp16:200,fp8:400,int8:800,fp4:1600,nvlink:true,pcie:"PCIe 5.0 x16",released:"2025-Q1",rating:9.9,inStock:false,sources:["nvidia_official","nvidia_ai"],notes:"96 GB GDDR7 ECC. NVLink for 192 GB pair.",topology:"GB202",cudaCores:24576,tensorCores:768,memBusWidth:384,boostClockMHz:2520,useCase:["LLM Inference","Agentic AI","Rendering"],tokensPerSec:{llama70b:52,llama8b:420,mistral7b:470}},
+  {id:"rtxpro6000_bw_server",name:"NVIDIA RTX PRO 6000 Blackwell Server Edition",shortName:"RTX PRO 6000 Server",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:96,vramType:"GDDR7 ECC",priceUSD:11000,tdp:450,bandwidth:1792,fp16:200,fp8:400,int8:800,fp4:1600,nvlink:false,pcie:"PCIe 5.0 x16",released:"2025-Q2",rating:9.2,inStock:false,sources:["nvidia_official"],notes:"Rack-mount server form factor. Passive cooling for chassis airflow. 450 W sustained. PCIe 5.0 x16 only — NVLink not supported.",topology:"GB202",cudaCores:24576,tensorCores:768,memBusWidth:384,boostClockMHz:2520,useCase:["LLM Inference","LLM Training","RAG","Vision"],tokensPerSec:{llama70b:52,llama8b:420,mistral7b:470}},
+  {id:"rtxpro6000_bw",name:"NVIDIA RTX PRO 6000 Blackwell Workstation Edition",shortName:"RTX PRO 6000 WS",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:96,vramType:"GDDR7 ECC",priceUSD:8000,tdp:300,bandwidth:1792,fp16:200,fp8:400,int8:800,fp4:1600,nvlink:false,pcie:"PCIe 5.0 x16",released:"2025-Q1",rating:9.9,inStock:false,sources:["nvidia_official","nvidia_ai"],notes:"96 GB GDDR7 ECC. Desktop workstation active cooling. PCIe 5.0 x16 only — NVLink not supported.",topology:"GB202",cudaCores:24576,tensorCores:768,memBusWidth:384,boostClockMHz:2520,useCase:["LLM Inference","Agentic AI","Rendering"],tokensPerSec:{llama70b:52,llama8b:420,mistral7b:470}},
+  {id:"rtxpro6000_bw_maxq",name:"NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",shortName:"RTX PRO 6000 Max-Q",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:96,vramType:"GDDR7 ECC",priceUSD:7500,tdp:175,bandwidth:1344,fp16:150,fp8:300,int8:600,fp4:1200,nvlink:false,pcie:"PCIe 5.0 x16",released:"2025-Q2",rating:8.7,inStock:false,sources:["nvidia_official"],notes:"Power-optimised for compact and small-form-factor workstations. Same 96 GB GDDR7 ECC, clock-limited to 175 W envelope with reduced bandwidth. PCIe 5.0 x16 only — NVLink not supported.",topology:"GB202",cudaCores:24576,tensorCores:768,memBusWidth:384,boostClockMHz:1980,useCase:["LLM Inference","RAG","Vision"],tokensPerSec:{llama70b:38,llama8b:315,mistral7b:350}},
   {id:"rtxpro5000_bw",name:"NVIDIA RTX PRO 5000 Blackwell",shortName:"RTX PRO 5000 BW",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:48,vramType:"GDDR7 ECC",priceUSD:4000,tdp:250,bandwidth:960,fp16:120,fp8:240,int8:480,fp4:960,nvlink:true,pcie:"PCIe 5.0 x16",released:"2025-Q1",rating:9.6,inStock:false,sources:["nvidia_official"],notes:"48 GB GDDR7 ECC. NVLink for 96 GB.",topology:"GB203",useCase:["LLM Inference","RAG"],tokensPerSec:{llama70b:null,llama8b:230,mistral7b:258}},
   {id:"rtxpro4500_bw",name:"NVIDIA RTX PRO 4500 Blackwell",shortName:"RTX PRO 4500 BW",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:24,vramType:"GDDR7 ECC",priceUSD:2500,tdp:165,bandwidth:576,fp16:55,fp8:110,int8:220,fp4:440,nvlink:false,pcie:"PCIe 5.0 x16",released:"2025-Q2",rating:9.0,inStock:false,sources:["nvidia_official"],notes:"24 GB GDDR7 ECC. Mid-range Blackwell workstation.",topology:"GB205",cudaCores:8960,tensorCores:280,memBusWidth:192,boostClockMHz:2280,useCase:["LLM Inference","RAG","Vision"],tokensPerSec:{llama70b:null,llama8b:105,mistral7b:118}},
   {id:"rtxpro4000_bw",name:"NVIDIA RTX PRO 4000 Blackwell",shortName:"RTX PRO 4000 BW",brand:"NVIDIA",series:"RTX PRO Blackwell",gen:"Blackwell",segment:"workstation",vram:20,vramType:"GDDR7 ECC",priceUSD:1500,tdp:130,bandwidth:448,fp16:40,fp8:80,int8:160,fp4:320,nvlink:false,pcie:"PCIe 5.0 x16",released:"2025-Q2",rating:8.8,inStock:false,sources:["nvidia_official"],notes:"20 GB GDDR7 ECC. Workstation AI & visualization.",topology:"GB205",cudaCores:7168,tensorCores:224,memBusWidth:160,boostClockMHz:2175,useCase:["LLM Inference","Embeddings","RAG"],tokensPerSec:{llama70b:null,llama8b:78,mistral7b:87}},
@@ -3539,6 +3542,7 @@ const STRESS_TOOLS=[
 const TABS=[
   {id:"hardware",label:"🖥 Hardware"},
   {id:"models",label:"🤖 Models"},
+  {id:"connectors",label:"🔌 GPU Connectors"},
   {id:"build",label:"🛠 Build"},
   {id:"compare",label:"⚖ Compare"},
   {id:"tools",label:"🧮 Tools"},
@@ -3546,6 +3550,152 @@ const TABS=[
   {id:"sources",label:"📚 Sources"},
   {id:"guide",label:"📖 Guide"},
 ];
+
+// ─── GPU CONNECTORS DATA ──────────────────────────────────────────────────────
+const NVLINK_GENERATIONS=[
+  {gen:"NVLink 4.0",bw:"900 GB/s bidirectional",maxGPUs:8,hwIds:["h100_nvl","h200_sxm","b200_sxm","b300_sxm","gb200_superchip"]},
+  {gen:"NVLink 3.0",bw:"600 GB/s bidirectional",maxGPUs:8,hwIds:["a100_80_sxm","a100_40","a30"]},
+  {gen:"NVLink 2.0 Bridge",bw:"100 GB/s bidirectional",maxGPUs:2,hwIds:["rtx3090","rtx3090ti"],note:"Requires physical 2-slot bridge accessory."},
+];
+const PCIE5_PLATFORMS=[
+  {category:"Workstation",platform:"Intel W790",socket:"LGA4677",cpu:"Intel Xeon W 2400 / 3400",boards:[
+    {name:"ASUS Pro WS W790-ACE",slots:5,maxRam:"1 TB ECC",notes:"ATX. Up to 5× PCIe 5.0 x16 slots."},
+    {name:"ASUS Pro WS W790E-SAGE SE",slots:7,maxRam:"2 TB ECC",notes:"E-ATX. 7× PCIe 5.0 x16. Best for dense multi-GPU builds."},
+  ]},
+  {category:"Workstation",platform:"AMD WRX90",socket:"SP6",cpu:"AMD Threadripper PRO 7000 series",boards:[
+    {name:"ASUS Pro WS WRX90E-SAGE SE",slots:7,maxRam:"2 TB ECC",notes:"E-ATX. 128 PCIe 5.0 lanes from CPU."},
+    {name:"ASRock WRX90 WS EVO",slots:4,maxRam:"2 TB ECC",notes:"ATX form factor."},
+  ]},
+  {category:"Consumer",platform:"Intel Z890",socket:"LGA1851",cpu:"Intel Core Ultra 200 (Arrow Lake)",boards:[
+    {name:"ASUS ROG Maximus Z890 Apex",slots:1,notes:"Primary x16 slot only."},
+    {name:"MSI MEG Z890 ACE",slots:1,notes:"Primary x16 slot only."},
+  ]},
+  {category:"Consumer",platform:"Intel Z790",socket:"LGA1700",cpu:"Intel Core 12th / 13th / 14th Gen",boards:[
+    {name:"ASUS ROG Maximus Z790 Apex",slots:1,notes:"Primary x16 slot only."},
+    {name:"Gigabyte Z790 Aorus Tachyon",slots:1,notes:"Primary x16 slot only."},
+  ]},
+  {category:"Consumer",platform:"AMD X870E",socket:"AM5",cpu:"AMD Ryzen 9000 / 7000 series",boards:[
+    {name:"ASUS ROG Crosshair X870E Hero",slots:1,notes:"Primary x16 slot only."},
+    {name:"MSI MEG X870E ACE",slots:2,notes:"x16/x0 or x8/x8 mode."},
+  ]},
+  {category:"Consumer",platform:"AMD X670E",socket:"AM5",cpu:"AMD Ryzen 7000 series",boards:[
+    {name:"ASUS ROG Crosshair X670E Gene",slots:1,notes:"Primary x16 slot only."},
+    {name:"Gigabyte X670E Aorus Master",slots:1,notes:"Primary x16 slot only."},
+  ]},
+];
+
+// ─── GPU CONNECTORS COMPONENT ─────────────────────────────────────────────────
+function GpuConnectorsTab({allHw}){
+  const accent="var(--accent)";
+  const accent2="var(--accent2)";
+  const bg2="var(--bg2)";
+  const border="var(--border)";
+  const text="var(--text)";
+  const text2="var(--text2)";
+  const text3="var(--text3)";
+  const card={background:bg2,border:`1px solid ${border}`,borderRadius:8,padding:20,marginBottom:16};
+  const tbl={width:"100%",borderCollapse:"collapse",fontSize:12,fontVariantNumeric:"tabular-nums"};
+  const th={background:"var(--bg3,#1a1a2e)",color:text3,textTransform:"uppercase",letterSpacing:.07*12,fontSize:10,fontWeight:700,padding:"7px 10px",textAlign:"left",borderBottom:`1px solid ${border}`,whiteSpace:"nowrap"};
+  const td={padding:"6px 10px",borderBottom:`1px solid ${border}`,color:text,verticalAlign:"top",fontSize:12};
+  return(
+    <div className="fade-up">
+      {/* ── Section header ── */}
+      <div style={{marginBottom:24}}>
+        <h2 style={{fontSize:20,fontWeight:800,color:text,marginBottom:6}}>🔌 GPU Connectors</h2>
+        <p style={{fontSize:13,color:text2,maxWidth:720}}>Reference guide for NVLink multi-GPU interconnects and native PCIe 5.0 x16 platform compatibility. Use this section to plan multi-GPU inference builds or verify motherboard compatibility before purchasing.</p>
+      </div>
+
+      {/* ── NVLink ── */}
+      <div style={{...card,borderLeft:`3px solid ${accent}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+          <span style={{fontSize:16,fontWeight:800,color:text}}>NVLink</span>
+          <span style={{fontSize:10,fontWeight:700,letterSpacing:.08*10,textTransform:"uppercase",background:"#062018",color:accent,padding:"2px 7px",borderRadius:3,border:`1px solid ${accent2}`}}>Multi-GPU</span>
+        </div>
+        <p style={{fontSize:12,color:text3,marginBottom:14}}>High-bandwidth GPU-to-GPU interconnect. Bypasses the PCIe bus for direct peer communication — required for multi-GPU inference on 70B+ models that exceed single-GPU VRAM. Without NVLink, cross-GPU traffic routes through system RAM at PCIe speeds.</p>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10,marginBottom:16}}>
+          {NVLINK_GENERATIONS.map(g=>{
+            const cards=allHw.filter(h=>g.hwIds.includes(h.id));
+            return(
+              <div key={g.gen} style={{background:"var(--bg3,#141428)",border:`1px solid ${border}`,borderRadius:6,padding:13}}>
+                <div style={{fontSize:13,fontWeight:700,color:accent,marginBottom:2}}>{g.gen}</div>
+                <div style={{fontSize:11,color:text2}}>{g.bw}</div>
+                <div style={{fontSize:10,color:text3,marginBottom:g.note?4:8}}>up to {g.maxGPUs} GPUs</div>
+                {g.note&&<div style={{fontSize:10,color:"#7A6030",fontStyle:"italic",marginBottom:8}}>{g.note}</div>}
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  {cards.map(c=>(
+                    <div key={c.id} style={{display:"flex",justifyContent:"space-between",fontSize:11,color:text}}>
+                      <span>{c.shortName||c.name}</span>
+                      <span style={{color:text3,fontFamily:"monospace"}}>{c.vram} GB</span>
+                    </div>
+                  ))}
+                  {cards.length===0&&g.hwIds.map(id=>(
+                    <div key={id} style={{fontSize:11,color:text3}}>{id}</div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{background:"#0E0500",border:"1px solid #3A1800",borderLeft:"3px solid var(--hot,#FF5020)",borderRadius:4,padding:"9px 13px",fontSize:11,color:"#C07040",lineHeight:1.55}}>
+          <strong>RTX PRO 6000 Blackwell — Server, Workstation, and Max-Q editions</strong> use PCIe 5.0 x16 only. NVLink is <strong>not</strong> supported on any RTX PRO Blackwell card.
+        </div>
+      </div>
+
+      {/* ── PCIe 5.0 ── */}
+      <div style={{...card,borderLeft:"3px solid var(--blue,#4EAAFF)"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+          <span style={{fontSize:16,fontWeight:800,color:text}}>Native PCIe 5.0 x16</span>
+          <span style={{fontSize:10,fontWeight:700,letterSpacing:.08*10,textTransform:"uppercase",background:"#06122A",color:"var(--blue,#4EAAFF)",padding:"2px 7px",borderRadius:3,border:"1px solid #1A3860"}}>Host Interface</span>
+        </div>
+        <p style={{fontSize:12,color:text3,marginBottom:20}}>PCIe 5.0 provides 64 GB/s per x16 slot — double PCIe 4.0. Reduces the CPU↔GPU transfer bottleneck for streaming large model weights, CPU-offload scenarios, and batched inference pipelines. Required for full bandwidth on RTX PRO Blackwell, RTX 50-series, AMD MI300X+, and H100 NVL cards.</p>
+
+        {["Workstation","Consumer"].map(cat=>{
+          const platforms=PCIE5_PLATFORMS.filter(p=>p.category===cat);
+          return(
+            <div key={cat} style={{marginBottom:20}}>
+              <div style={{fontSize:10,fontWeight:700,letterSpacing:.1*10,textTransform:"uppercase",color:text3,marginBottom:10}}>{cat} Platforms</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
+                {platforms.map(p=>(
+                  <div key={p.platform} style={{background:"var(--bg3,#141428)",border:`1px solid ${border}`,borderRadius:6,padding:14}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
+                      <span style={{fontSize:13,fontWeight:700,color:"#C4D8EE"}}>{p.platform}</span>
+                      <span style={{fontSize:10,color:text3,fontFamily:"monospace",background:"var(--bg,#07101E)",padding:"1px 5px",borderRadius:3}}>{p.socket}</span>
+                    </div>
+                    <div style={{fontSize:11,color:text3,marginBottom:10}}>{p.cpu}</div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={tbl}>
+                        <thead><tr>
+                          <th style={th}>Board</th>
+                          <th style={th}>×5.0 Slots</th>
+                          {cat==="Workstation"&&<th style={th}>Max RAM</th>}
+                          <th style={th}>Notes</th>
+                        </tr></thead>
+                        <tbody>{p.boards.map(b=>(
+                          <tr key={b.name}>
+                            <td style={{...td,fontWeight:600,color:"#B0C8E0",whiteSpace:"nowrap"}}>{b.name}</td>
+                            <td style={{...td,color:accent,fontWeight:700,fontFamily:"monospace"}}>{b.slots}×</td>
+                            {cat==="Workstation"&&<td style={{...td,whiteSpace:"nowrap"}}>{b.maxRam||"—"}</td>}
+                            <td style={{...td,color:text3}}>{b.notes}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{background:"#05101A",border:"1px solid #1A3860",borderLeft:"3px solid var(--blue,#4EAAFF)",borderRadius:4,padding:"9px 13px",fontSize:11,color:"#5A8EC0",lineHeight:1.55}}>
+          <strong>Multi-GPU with PCIe 5.0:</strong> For two or more PCIe 5.0 x16 cards at full bandwidth simultaneously, use W790 (Xeon W) or WRX90 (Threadripper PRO) workstation platforms. Consumer AM5 and LGA1851 boards expose only a single PCIe 5.0 x16 slot — additional slots drop to PCIe 4.0 x4 or x8.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App(){
@@ -3958,6 +4108,11 @@ export default function App(){
               ))}
             </div>
           </div>
+        )}
+
+        {/* ── GPU CONNECTORS TAB ── */}
+        {tab==="connectors"&&(
+          <GpuConnectorsTab allHw={ALL_HW}/>
         )}
 
         {/* ── BUILD TAB ── */}

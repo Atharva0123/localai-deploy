@@ -9,21 +9,72 @@ Disallow: /_vercel/
 # Sitemap
 Sitemap: https://localai-deploy.vercel.app/sitemap.xml
 
-# Crawl-delay (optional — reduce load on Vercel edge)
+# ── Search engine crawlers ───────────────────────────────────────────────────
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 2
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 3
+
+User-agent: Slurp
+Allow: /
 Crawl-delay: 5
 
-# Allow major AI training crawlers (opt-in for discoverability)
+User-agent: DuckDuckBot
+Allow: /
+Crawl-delay: 3
+
+User-agent: Baiduspider
+Allow: /
+Crawl-delay: 5
+
+User-agent: YandexBot
+Allow: /
+Crawl-delay: 5
+
+# ── AI & Generative Engine crawlers (GEO opt-in) ────────────────────────────
+# Allow AI training and search crawlers for maximum discoverability
+
 User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
 Allow: /
 
 User-agent: Claude-Web
 Allow: /
 
+User-agent: anthropic-ai
+Allow: /
+
 User-agent: PerplexityBot
 Allow: /
 
-User-agent: Googlebot
-Crawl-delay: 2
+User-agent: YouBot
+Allow: /
 
-User-agent: Bingbot
-Crawl-delay: 3
+User-agent: CCBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Gemini
+Allow: /
+
+User-agent: Meta-ExternalAgent
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: Amazonbot
+Allow: /

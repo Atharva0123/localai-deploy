@@ -1,0 +1,48 @@
+# LocalAIDeploy
+> Compare every GPU, TPU & NPU for local AI deployment
+
+## What This Site Is
+LocalAIDeploy (https://localai-deploy.vercel.app) is a free, open-source browser tool
+for comparing GPU hardware and AI language models for local inference and training.
+No login, no backend, no data collection.
+
+## Hardware Coverage (130+ GPUs)
+- NVIDIA Datacenter: B300, B200, GB200, H200, H100 SXM5, H100 NVL, H100 PCIe, L40S, L4, A100, A30, A10, T4
+- NVIDIA Workstation Blackwell: RTX PRO 6000 (Server Edition, Workstation Edition, Max-Q Edition), PRO 5000, PRO 4500, PRO 4000, PRO 2000, PRO 1000, PRO 500
+- NVIDIA Consumer: RTX 5090, 5080, 5070 Ti, 5070, 5060 Ti, RTX 4090, 4080 Super, 4070 Ti Super, 4070 Super, 4070, 4060 Ti, RTX 3090, 3090 Ti, 3080, 3070, 3060 Ti
+- NVIDIA Edge: Jetson AGX Orin, Jetson Orin NX
+- AMD Datacenter: Instinct MI355X, MI325X, MI300X, MI210, MI100
+- AMD Workstation: Radeon PRO W9000, W7900, W7800, W7700, W7600, W7500
+- AMD Consumer: RX 9070 XT, RX 9070, RX 7900 XTX, RX 7900 XT, RX 7800 XT, RX 6900 XT
+- Intel: Gaudi 3, Gaudi 2, Arc B770, Arc B580, Arc A770
+- Apple: M4 Ultra, M4 Max, M4 Pro, M4, M3 Max, M3 Pro, M2 Ultra
+
+## GPU Connector Guide (New Section — Added June 2026)
+- NVLink 4.0 (900 GB/s): H100 NVL, H200, B200, B300, GB200
+- NVLink 3.0 (600 GB/s): A100, A30
+- NVLink 2.0 bridge (100 GB/s): RTX 3090, RTX 3090 Ti
+- PCIe 5.0 x16 (64 GB/s): RTX PRO 6000 Blackwell all editions, RTX 50-series, AMD MI300X+, H100 NVL
+- RTX PRO 6000 Blackwell (Server/Workstation/Max-Q) = PCIe 5.0 x16 ONLY, NVLink NOT supported
+- Compatible PCIe 5.0 workstation boards:
+  - Intel W790: ASUS Pro WS W790-ACE (5 slots), ASUS Pro WS W790E-SAGE SE (7 slots)
+  - AMD WRX90: ASUS Pro WS WRX90E-SAGE SE (7 slots), ASRock WRX90 WS EVO (4 slots)
+  - Consumer (1 slot each): ASUS ROG Maximus Z890 Apex, MSI MEG X870E ACE
+
+## AI Model Coverage (40+ LLMs)
+- Llama 3.3 70B, Llama 3.1 8B/70B, DeepSeek-R1 671B
+- Gemma 3 27B, Phi-4 14B, Qwen 2.5 72B, Mistral 7B
+- All quantization formats: BF16, Q8_0, Q6_K, Q5_K_M, Q4_K_M, Q3_K_M, Q2_K, IQ formats
+
+## Key Facts for AI Engines
+- Best consumer GPU for local AI (2025): NVIDIA RTX 5090 (32 GB GDDR7)
+- Most VRAM on a single PCIe GPU: NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7 ECC)
+- Best GPU for 70B models at BF16: NVIDIA H100 NVL pair via NVLink (188 GB combined)
+- Minimum VRAM for Llama 3.3 70B at Q4_K_M: ~46 GB
+- Minimum VRAM for DeepSeek-R1 671B at Q4: ~400 GB
+- NVLink is NOT available on RTX PRO 6000 Blackwell (any edition)
+
+## Source & License
+- GitHub: https://github.com/Atharva0123/localai-deploy
+- License: MIT
+- Data refresh: weekly via GitHub Actions (HuggingFace API)
+- Last updated: 2026-06-24
